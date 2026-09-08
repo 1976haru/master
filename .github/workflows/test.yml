@@ -37,9 +37,13 @@ jobs:
       - name: Verify v3 runtime import
         run: python scripts/verify_v3_app.py
 
+      - name: Verify v3.1 auto-finish runtime
+        run: python scripts/verify_v31_app.py
+
       - name: Compile runtime adapters
         shell: pwsh
         run: |
           python -m py_compile Suno15_Mastering.pyw
           python -m py_compile Suno15_Mastering_v2.pyw
           python -m py_compile Suno15_Mastering_v3.pyw
+          python -m py_compile Suno15_Mastering_v3_1.pyw
