@@ -38,6 +38,7 @@ class QualityGateResult:
     tail_energetic_end: bool
     source: AudioMetrics
     processed: AudioMetrics
+    tail_note: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
@@ -132,6 +133,42 @@ def classify_delay_diagnostic(
         f"confirmed residual processing delay: {delay} samples "
         f"({milliseconds:.3f} ms, confidence {diagnostic.confidence:.2f}, "
         f"windows [{estimates}])",
+    )
+
+
+def classify_tail_silence_difference(
+    *,
+    source_trailing_silence_ms: float,
+    processed_trailing_silence_ms: float,
+    duration_delta_ms: float,
+    tail_hard_cut: bool,
+    tail_energetic_end: bool,
+    tail_last_sample_dbfs: float,
+    warning_threshold_ms: float = 20.0,
+    information_limit_ms: float = 50.0,
+    last_sample_threshold_dbfs: float = -60.0,
+) -> tuple[str, str]:
+    """Classify small silence-edge differences without creating false Tail WARNs."""
+    difference_ms = float(source_trailing_silence_ms - processed_trailing_silence_ms)
+    if duration_delta_ms > 0.0 or difference_ms <= float(warning_threshold_ms):
+        return "PASS", ""
+
+    last_sample_safe = (
+        not np.isfinite(tail_last_sample_dbfs)
+        or tail_last_sample_dbfs <= float(last_sample_threshold_dbfs)
+    )
+    final_tail_safe = not tail_hard_cut and not tail_energetic_end and last_sample_safe
+    if final_tail_safe and difference_ms <= float(information_limit_ms):
+        return (
+            "INFO",
+            f"minor trailing-silence difference {difference_ms:.1f} ms; "
+            "final tail is silent and safe",
+        )
+
+    return (
+        "WARN",
+        f"output tail is shorter than source tail by {difference_ms:.1f} ms; "
+        "listen for reverb cutoff",
     )
 
 
@@ -232,6 +269,8 @@ def evaluate_master(
     tail_end_rms_threshold_dbfs: float = -50.0,
     tail_last_sample_threshold_dbfs: float = -60.0,
     maximum_energetic_tail_rms_dbfs: float | None = None,
+    tail_silence_warning_threshold_ms: float = 20.0,
+    tail_silence_information_limit_ms: float = 50.0,
     max_delay_ms: float = 100.0,
     true_peak_oversample: int = 4,
 ) -> QualityGateResult:
@@ -381,8 +420,20 @@ def evaluate_master(
 
     if lra_reduction > 1.5 and maximum_lra_reduction_lu is None:
         warnings.append(f"LRA reduced by {lra_reduction:.2f} LU")
-    if processed.trailing_silence_ms + 20.0 < source.trailing_silence_ms and duration_delta_ms <= 0:
-        warnings.append("output tail is shorter than source tail; listen for reverb cutoff")
+
+    tail_silence_classification, tail_note = classify_tail_silence_difference(
+        source_trailing_silence_ms=source.trailing_silence_ms,
+        processed_trailing_silence_ms=processed.trailing_silence_ms,
+        duration_delta_ms=duration_delta_ms,
+        tail_hard_cut=tail_hard_cut,
+        tail_energetic_end=tail_energetic_end,
+        tail_last_sample_dbfs=tail_last_sample_dbfs,
+        warning_threshold_ms=tail_silence_warning_threshold_ms,
+        information_limit_ms=tail_silence_information_limit_ms,
+        last_sample_threshold_dbfs=tail_last_sample_threshold_dbfs,
+    )
+    if tail_silence_classification == "WARN":
+        warnings.append(tail_note)
 
     status = "FAIL" if issues else ("WARN" if warnings else "PASS")
     return QualityGateResult(
@@ -408,4 +459,5 @@ def evaluate_master(
         tail_energetic_end=tail_energetic_end,
         source=source,
         processed=processed,
+        tail_note=tail_note if tail_silence_classification == "INFO" else "",
     )
