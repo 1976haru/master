@@ -26,7 +26,7 @@ def _refresh_final_metrics(
     track: str,
     result: QualityGateResult,
 ) -> QualityGateResult:
-    """Use the actual final WAV after Tail/codec post-processing in reports."""
+    """Use the actual final WAV after Tail/codec/alignment post-processing in reports."""
     final_path = output_dir / f"{Path(track).stem}_MASTER.wav"
     if not final_path.exists():
         return result
@@ -38,7 +38,9 @@ def _refresh_final_metrics(
     post_gain = float(result.processed.lufs_i - actual.lufs_i)
     warnings = result.warnings
     if post_gain > 0.03:
-        warnings = warnings + (f"codec safety attenuation applied: -{post_gain:.2f} dB",)
+        warning = f"codec safety attenuation applied: -{post_gain:.2f} dB"
+        if warning not in warnings:
+            warnings = warnings + (warning,)
     return replace(result, processed=actual, warnings=warnings)
 
 
@@ -71,8 +73,15 @@ def write_quality_reports(
     table_rows: list[str] = []
     for track, result in items:
         details = list(result.issues) + list(result.warnings)
-        detail_text = " / ".join(details) if details else "OK"
+        if result.delay_note and result.delay_classification in {"INFO", "WARN"}:
+            details.append(result.delay_note)
+        detail_text = " / ".join(dict.fromkeys(details)) if details else "OK"
         delay = "?" if result.residual_delay_samples is None else str(result.residual_delay_samples)
+        delay_windows = ",".join(str(value) for value in result.delay_window_estimates_samples) or "?"
+        delay_confidence = f"{result.delay_confidence:.2f}" if result.delay_window_estimates_samples else "?"
+        delay_class = result.delay_classification
+        if result.delay_auto_aligned:
+            delay_class = "AUTO-ALIGNED"
         if result.tail_hard_cut:
             tail = "HARD CUT"
         elif result.tail_energetic_end:
@@ -93,6 +102,9 @@ def write_quality_reports(
             f"<td>{dynamics}</td>"
             f"<td>{result.low_band_stereo_correlation:.3f}</td>"
             f"<td>{delay}</td>"
+            f"<td>{html.escape(delay_class)}</td>"
+            f"<td>{delay_confidence}</td>"
+            f"<td>{html.escape(delay_windows)}</td>"
             f"<td>{tail}</td>"
             f"<td>{result.tail_end_rms_dbfs:.1f}</td>"
             f"<td>{result.tail_last_sample_dbfs:.1f}</td>"
@@ -110,12 +122,12 @@ def write_quality_reports(
         "table{border-collapse:collapse;width:100%;font-size:12px}th,td{border:1px solid #ddd;"
         "padding:6px;text-align:left}th{background:#f3f3f3}.summary{font-size:18px;margin:12px 0 20px}"
         "</style></head><body>"
-        "<h1>HARU Mastering Quality Gate v3.3</h1>"
+        "<h1>HARU Mastering Quality Gate v3.4</h1>"
         f"<div class='summary'>PASS {counts.get('PASS',0)} / WARN {counts.get('WARN',0)} / FAIL {counts.get('FAIL',0)}</div>"
         "<table><thead><tr><th>Track</th><th>Status</th><th>LUFS-I</th><th>dBTP</th>"
         "<th>LRA</th><th>LRA 감소</th><th>Crest 변화</th><th>Dynamics</th>"
-        "<th>저역상관</th><th>Delay</th><th>Tail</th>"
-        "<th>End RMS</th><th>Last Sample</th><th>Duration Δ</th><th>Notes</th>"
+        "<th>저역상관</th><th>Delay</th><th>Delay 판정</th><th>신뢰도</th><th>구간값</th>"
+        "<th>Tail</th><th>End RMS</th><th>Last Sample</th><th>Duration Δ</th><th>Notes</th>"
         "</tr></thead><tbody>"
         + "".join(table_rows)
         + "</tbody></table></body></html>",
