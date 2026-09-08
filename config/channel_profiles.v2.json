@@ -1,5 +1,5 @@
 {
-  "schemaVersion": "3.2.0",
+  "schemaVersion": "3.3.0",
   "description": "Analysis-driven safe defaults. Processing amounts are ceilings, not mandatory boosts or cuts.",
   "global": {
     "workingSampleRateHz": 48000,
@@ -60,6 +60,11 @@
       "codecPreviewEnabled": true,
       "codecTruePeakSafetyMarginDb": 0.05,
       "codecCeilingStepDb": 0.20,
+      "codecMaximumAutoGainPasses": 3,
+      "codecPostGainSafetyMarginDb": 0.10,
+      "codecMinimumGainStepDb": 0.05,
+      "codecMaximumSingleGainReductionDb": 1.50,
+      "codecMaximumTotalGainReductionDb": 2.00,
       "keepCodecPreviewAudio": false,
       "genreLraReductionLimitLu": {
         "OLD POP": 0.60,
