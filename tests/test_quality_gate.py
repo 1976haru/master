@@ -7,10 +7,16 @@ from haru_mastering.analysis import analyze_file
 from haru_mastering.quality_gate import evaluate_master
 
 
+def _music_like_noise(sr: int, seconds: int, seed: int) -> np.ndarray:
+    rng = np.random.default_rng(seed)
+    mono = rng.normal(0.0, 0.03, size=sr * seconds)
+    side = rng.normal(0.0, 0.003, size=sr * seconds)
+    return np.column_stack([mono + side, mono - side])
+
+
 def test_quality_gate_passes_identical_audio(tmp_path):
     sr = 48000
-    rng = np.random.default_rng(42)
-    audio = rng.normal(0.0, 0.03, size=(sr * 2, 2))
+    audio = _music_like_noise(sr, 2, 42)
     source = tmp_path / "source.wav"
     processed = tmp_path / "processed.wav"
     sf.write(source, audio, sr, subtype="PCM_24")
@@ -26,12 +32,12 @@ def test_quality_gate_passes_identical_audio(tmp_path):
 
     assert result.status == "PASS"
     assert result.residual_delay_samples == 0
+    assert result.low_band_stereo_correlation >= 0.70
 
 
 def test_quality_gate_detects_240_sample_delay(tmp_path):
     sr = 48000
-    rng = np.random.default_rng(7)
-    audio = rng.normal(0.0, 0.03, size=(sr * 2, 2))
+    audio = _music_like_noise(sr, 2, 7)
     delayed = np.vstack([np.zeros((240, 2)), audio[:-240]])
     source = tmp_path / "source.wav"
     processed = tmp_path / "processed.wav"
