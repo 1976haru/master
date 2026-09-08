@@ -130,4 +130,4 @@ GitHub Actions에서 Windows + Python 3.12 환경으로 다음을 자동 검사�
 
 ## 현재 상태
 
-v3 코드 통합은 완료 단계이며, Draft PR #2에서 실제 Suno WAV A/B 회귀 테스트와 GitHub Actions 검증 후 `main` 병합 여부를 결정합니다.
+v3 코드 통합과 자동 회귀 테스트는 완료 단계입니다. Draft PR #2는 실제 Suno WAV로 A/B 청취, residual delay 0~1 sample, tail preservation, 채널별 음색을 최종 확인하기 전에는 `main`에 병합하지 않습니다.
