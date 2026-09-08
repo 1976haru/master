@@ -4,7 +4,7 @@ import json
 import shutil
 import subprocess
 import tempfile
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from pathlib import Path
 
 from .analysis import AudioMetrics, analyze_file
@@ -21,6 +21,20 @@ class CodecPreviewResult:
             "codec": self.codec,
             "encoded_path": self.encoded_path,
             "metrics": self.metrics.to_dict(),
+        }
+
+
+@dataclass(frozen=True)
+class CodecSafetyResult:
+    safe: bool
+    maximum_true_peak_dbtp: float
+    details: tuple[tuple[str, float], ...]
+
+    def to_dict(self) -> dict:
+        return {
+            "safe": self.safe,
+            "maximum_true_peak_dbtp": self.maximum_true_peak_dbtp,
+            "details": [{"codec": codec, "true_peak_dbtp": peak} for codec, peak in self.details],
         }
 
 
@@ -103,3 +117,19 @@ def create_codec_previews(
         encoding="utf-8",
     )
     return tuple(results)
+
+
+def check_codec_safety(
+    source_path: str | Path,
+    *,
+    true_peak_ceiling_dbtp: float,
+    tolerance_db: float = 0.05,
+    ffmpeg: str | None = None,
+) -> CodecSafetyResult:
+    """Round-trip AAC/MP3 in a temporary folder and reject coded peaks above the ceiling."""
+    with tempfile.TemporaryDirectory(prefix="haru_codec_check_") as tmp:
+        previews = create_codec_previews(source_path, tmp, ffmpeg=ffmpeg)
+        details = tuple((item.codec, float(item.metrics.true_peak_dbtp)) for item in previews)
+    maximum = max((peak for _, peak in details), default=float("-inf"))
+    safe = maximum <= float(true_peak_ceiling_dbtp) + float(tolerance_db)
+    return CodecSafetyResult(safe=safe, maximum_true_peak_dbtp=maximum, details=details)
