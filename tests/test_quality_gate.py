@@ -5,7 +5,7 @@ import soundfile as sf
 
 from haru_mastering.analysis import analyze_file
 from haru_mastering.auto_finish import apply_click_safe_fade
-from haru_mastering.quality_gate import evaluate_master
+from haru_mastering.quality_gate import evaluate_master, lra_dynamics_risk
 
 
 def _music_like_noise(sr: int, seconds: int, seed: int, *, safe_tail: bool = True) -> np.ndarray:
@@ -94,3 +94,36 @@ def test_quality_gate_detects_and_repairs_hard_cut_tail(tmp_path):
     )
     assert repaired.tail_hard_cut is False
     assert not any(issue.startswith("TAIL HARD CUT") for issue in repaired.issues)
+
+
+def test_large_lra_change_is_safe_when_final_dynamics_are_healthy():
+    assert lra_dynamics_risk(
+        lra_reduction_lu=1.07,
+        final_lra_lu=4.43,
+        crest_factor_loss_db=-1.26,
+        maximum_lra_reduction_lu=0.60,
+        minimum_final_lra_lu=3.50,
+        maximum_crest_factor_loss_db=0.75,
+    ) is False
+
+
+def test_large_lra_change_fails_when_final_lra_collapses():
+    assert lra_dynamics_risk(
+        lra_reduction_lu=1.10,
+        final_lra_lu=2.80,
+        crest_factor_loss_db=0.10,
+        maximum_lra_reduction_lu=0.60,
+        minimum_final_lra_lu=3.50,
+        maximum_crest_factor_loss_db=0.75,
+    ) is True
+
+
+def test_large_lra_change_fails_when_crest_collapses():
+    assert lra_dynamics_risk(
+        lra_reduction_lu=0.95,
+        final_lra_lu=4.20,
+        crest_factor_loss_db=1.10,
+        maximum_lra_reduction_lu=0.60,
+        minimum_final_lra_lu=3.50,
+        maximum_crest_factor_loss_db=0.75,
+    ) is True
