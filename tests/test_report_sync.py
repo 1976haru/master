@@ -47,6 +47,7 @@ def test_report_refreshes_tail_from_actual_final_wav(tmp_path):
         tail_energetic_end=True,
         source=source_metrics,
         processed=stale_processed,
+        tail_note="minor trailing-silence difference 28.5 ms; final tail is silent and safe",
     )
 
     refreshed = _refresh_final_metrics(tmp_path, "sync_source.wav", stale_result)
@@ -59,11 +60,13 @@ def test_report_refreshes_tail_from_actual_final_wav(tmp_path):
         energetic_end_threshold_dbfs=-35.0,
     )
 
-    assert QUALITY_REPORT_VERSION == "v3.6"
+    assert QUALITY_REPORT_VERSION == "v3.6.1"
     assert abs(refreshed.processed.lufs_i - actual.lufs_i) < 1e-9
     assert abs(refreshed.processed.true_peak_dbtp - actual.true_peak_dbtp) < 1e-9
+    assert abs(refreshed.processed.lra_lu - actual.lra_lu) < 1e-9
     assert abs(refreshed.tail_end_rms_dbfs - final_tail.end_rms_dbfs) < 1e-9
     assert refreshed.tail_last_sample_dbfs == final_tail.last_sample_dbfs
     assert refreshed.tail_hard_cut is final_tail.hard_cut
     assert refreshed.tail_energetic_end is final_tail.energetic_end
+    assert refreshed.tail_note.startswith("minor trailing-silence")
     assert any("codec safety attenuation applied" in item for item in refreshed.warnings)
