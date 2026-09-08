@@ -61,7 +61,8 @@ def _profile_payload():
 def _gate_kwargs(genre_key: str) -> dict:
     payload = _profile_payload()
     profile = v2.get_profile(genre_key)
-    gate = payload["global"]["qualityGate"]
+    global_cfg = payload["global"]
+    gate = global_cfg["qualityGate"]
     return {
         "target_lufs_i": float(profile["targetLufsI"]),
         "true_peak_ceiling_dbtp": float(profile["truePeakCeilingDbtp"]),
@@ -71,9 +72,12 @@ def _gate_kwargs(genre_key: str) -> dict:
         "maximum_residual_delay_samples": int(gate["maximumResidualDelaySamples"]),
         "maximum_dc_offset": float(gate["maximumDcOffset"]),
         "minimum_stereo_correlation": float(gate["minimumFullBandStereoCorrelation"]),
+        "minimum_low_band_stereo_correlation": float(gate["minimumLowBandStereoCorrelation"]),
+        "low_band_cutoff_hz": float(global_cfg["bassMonoBelowHz"]),
+        "expected_output_sample_rate_hz": int(global_cfg["workingSampleRateHz"]),
         "reject_on_duration_loss": bool(gate["rejectOnUnexpectedDurationLoss"]),
-        "max_delay_ms": float(payload["global"]["latencyDetectionMaxMs"]),
-        "true_peak_oversample": int(payload["global"]["truePeakOversampleFactor"]),
+        "max_delay_ms": float(global_cfg["latencyDetectionMaxMs"]),
+        "true_peak_oversample": int(global_cfg["truePeakOversampleFactor"]),
     }
 
 
