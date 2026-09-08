@@ -46,7 +46,13 @@ def write_quality_reports(
         details = list(result.issues) + list(result.warnings)
         detail_text = " / ".join(details) if details else "OK"
         delay = "?" if result.residual_delay_samples is None else str(result.residual_delay_samples)
-        tail = "HARD CUT" if result.tail_hard_cut else "SAFE"
+        if result.tail_energetic_end:
+            tail = "ENERGETIC END"
+        elif result.tail_hard_cut:
+            tail = "HARD CUT"
+        else:
+            tail = "SAFE"
+        dynamics = "RISK" if result.lra_guard_triggered else "SAFE"
         table_rows.append(
             "<tr>"
             f"<td>{html.escape(track)}</td>"
@@ -55,6 +61,8 @@ def write_quality_reports(
             f"<td>{result.processed.true_peak_dbtp:.2f}</td>"
             f"<td>{result.processed.lra_lu:.2f}</td>"
             f"<td>{result.lra_reduction_lu:.2f}</td>"
+            f"<td>{result.crest_factor_loss_db:.2f}</td>"
+            f"<td>{dynamics}</td>"
             f"<td>{result.low_band_stereo_correlation:.3f}</td>"
             f"<td>{delay}</td>"
             f"<td>{tail}</td>"
@@ -71,14 +79,15 @@ def write_quality_reports(
         "<meta name='viewport' content='width=device-width,initial-scale=1'>"
         "<title>HARU Mastering Quality Gate</title>"
         "<style>body{font-family:Segoe UI,Malgun Gothic,sans-serif;margin:24px;color:#222}"
-        "table{border-collapse:collapse;width:100%;font-size:13px}th,td{border:1px solid #ddd;"
-        "padding:7px;text-align:left}th{background:#f3f3f3}.summary{font-size:18px;margin:12px 0 20px}"
+        "table{border-collapse:collapse;width:100%;font-size:12px}th,td{border:1px solid #ddd;"
+        "padding:6px;text-align:left}th{background:#f3f3f3}.summary{font-size:18px;margin:12px 0 20px}"
         "</style></head><body>"
-        "<h1>HARU Mastering Quality Gate</h1>"
+        "<h1>HARU Mastering Quality Gate v3.2</h1>"
         f"<div class='summary'>PASS {counts.get('PASS',0)} / WARN {counts.get('WARN',0)} / FAIL {counts.get('FAIL',0)}</div>"
         "<table><thead><tr><th>Track</th><th>Status</th><th>LUFS-I</th><th>dBTP</th>"
-        "<th>LRA</th><th>LRA 감소</th><th>저역상관</th><th>Delay</th><th>Tail</th>"
-        "<th>End RMS</th><th>Last Sample</th><th>Duration Δ</th><th>Notes</th>"
+        "<th>LRA</th><th>LRA 감소</th><th>Crest 손실</th><th>Dynamics</th>"
+        "<th>저역상관</th><th>Delay</th><th>Tail</th><th>End RMS</th>"
+        "<th>Last Sample</th><th>Duration Δ</th><th>Notes</th>"
         "</tr></thead><tbody>"
         + "".join(table_rows)
         + "</tbody></table></body></html>",
