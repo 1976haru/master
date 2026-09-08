@@ -1,4 +1,4 @@
-# HARU Mastering v3.5 AUTO FINISH
+# HARU Mastering v3.6 FINAL REPORT SYNC
 
 Windows 10/11용 오프라인 중심 배치 마스터링·자동 품질검사·자동수정 프로그램입니다.
 
@@ -11,7 +11,29 @@ Windows 10/11용 오프라인 중심 배치 마스터링·자동 품질검사·�
 
 LUFS, LRA, dBTP, 위상, Tail, 코덱 피크와 sample 지연을 사용자가 직접 판단할 필요가 없습니다.
 
-## v3.5 자동 처리 구조
+## v3.6 핵심 변경: 최종 WAV 보고서 동기화
+
+v3.5까지는 코덱 안전을 위해 최종 WAV 전체 게인을 낮춘 곡에서 LUFS와 True Peak는 다시 측정했지만, 일부 Tail 수치가 코덱 감쇠 전 값으로 남을 수 있었습니다. 완료 안내문에도 과거 버전인 `v3.2`가 표시되는 경우가 있었습니다.
+
+v3.6은 모든 후처리가 끝난 실제 배포용 WAV를 다시 읽어 다음 결과를 동기화합니다.
+
+- HTML Quality Gate의 최종 LUFS·True Peak·Tail RMS·마지막 sample
+- JSON Quality Gate의 `processed` 및 Tail 판정값
+- CSV의 기존 Tail 열과 최종 Tail 전용 열
+- `자동해결_결과.txt`의 실행 버전
+- `STUDIO_문제곡_보완_프롬프트.txt`의 실행 버전
+
+CSV에 다음 최종 확인 열이 추가됩니다.
+
+- `tail_final_rms_dbfs`
+- `tail_final_last_sample_dbfs`
+- `tail_final_hard_cut`
+- `tail_final_energetic_end`
+- `tail_metrics_source=final_master_after_codec`
+
+코덱 감쇠가 적용된 곡은 `tail_after_RMS`와 `tail_after_rms_dbfs`도 최종 WAV 값으로 갱신됩니다.
+
+## 전체 자동 처리 구조
 
 ```text
 원본 WAV
@@ -39,6 +61,11 @@ AAC 256 / MP3 320 round-trip 안전검사
   ├─ 최종 WAV에 투명 broadband gain 적용
   └─ 최대 3회 재검사, 총 감쇠 2 dB 제한
   ↓
+최종 WAV 재분석 및 보고서 동기화
+  ├─ LUFS / True Peak / Tail 재측정
+  ├─ HTML / JSON / CSV 일치
+  └─ 완료 안내문 v3.6 표기
+  ↓
 최종 분류
   ├─ 01_RELEASE_READY
   ├─ 02_NEEDS_REVIEW
@@ -46,11 +73,9 @@ AAC 256 / MP3 320 round-trip 안전검사
   └─ 04_CODEC_PREVIEW
 ```
 
-## v3.5 Adaptive Tail Finish
+## v3.5 Adaptive Tail Finish 유지
 
-이전 버전은 큰 신호로 끝나는 곡에 400 ms 감쇠를 한 번 적용했습니다. 일부 곡은 감쇠 후에도 마지막 100 ms RMS가 안전 기준보다 약간 높아 정상적인 자동수정 후에도 `ENERGETIC TAIL END`로 남을 수 있었습니다.
-
-v3.5는 같은 원본 마스터 복사본을 기준으로 다음 후보를 순서대로 계산합니다.
+강한 신호로 끝나는 곡은 같은 원본 마스터 복사본을 기준으로 다음 후보를 순서대로 계산합니다.
 
 ```text
 400 ms → 검사
@@ -64,24 +89,6 @@ v3.5는 같은 원본 마스터 복사본을 기준으로 다음 후보를 순�
 - 선택된 페이드 한 번만 최종 WAV에 저장합니다.
 - 1200 ms까지 적용해도 안전하지 않으면 억지로 RELEASE_READY에 넣지 않습니다.
 - 지연 자동정렬이 발동한 곡도 정렬 후 적응형 Tail 검사를 다시 실행합니다.
-
-CSV에는 다음 항목이 추가됩니다.
-
-- `tail_fade_attempts_ms`
-- `tail_selected_fade_ms`
-- `tail_target_rms_dbfs`
-- `tail_before_rms_dbfs`
-- `tail_after_rms_dbfs`
-- 여러 후보를 시험한 경우 `processing_mode`에 `+adaptive_tail`
-
-예:
-
-```text
-tail_fade_attempts_ms: 400,600
-tail_selected_fade_ms: 600
-tail_target_rms_dbfs: -35.5
-processing_mode: normal+adaptive_tail
-```
 
 ## v3.4 Smart Delay Guard 유지
 
@@ -113,7 +120,7 @@ EQ, Compressor, 편곡과 보컬 음색은 바꾸지 않습니다.
 - 한 번에 최대 1.50 dB
 - 전체 최대 2.00 dB
 - 매 감쇠 후 AAC·MP3를 다시 생성해 실제 True Peak 재측정
-- 최종 WAV 수치를 다시 분석해 HTML·JSON·CSV에 기록
+- 최종 WAV를 다시 분석해 HTML·JSON·CSV에 기록
 
 ## 복합 다이내믹 판정
 
@@ -155,13 +162,16 @@ INSTALL.bat
 RUN.bat
 ```
 
-기본 `RUN.bat`은 `Suno15_Mastering_v3_5.pyw`를 실행합니다.
+기본 `RUN.bat`은 `Suno15_Mastering_v3_6.pyw`를 실행합니다.
 
 ## 자동 테스트
 
 GitHub Actions / Windows / Python 3.12에서 다음을 자동 검사합니다.
 
 - 전체 pytest
+- 최종 WAV Tail RMS와 HTML·JSON 값 일치
+- 코덱 감쇠 후 CSV Tail 값 재측정
+- 완료 안내문 `v3.2~v3.5` → `v3.6` 자동교체
 - 400 ms 실패 후 600 ms 통과 사례
 - 가장 짧은 안전 페이드 선택
 - 후보 페이드 비중첩·단일 저장
@@ -169,13 +179,12 @@ GitHub Actions / Windows / Python 3.12에서 다음을 자동 검사합니다.
 - 5구간 240-sample 지연 확정 검출
 - 실제 WAV sample 자동정렬과 길이 유지
 - 코덱 초과량 자동감쇠
-- 안전한 LRA 변화와 실제 다이내믹 붕괴 구분
 - RELEASE_READY / NEEDS_REVIEW 분리
-- v2 / v3 / v3.2 / v3.3 / v3.4 / v3.5 runtime verification
+- v2 / v3 / v3.2 / v3.3 / v3.4 / v3.5 / v3.6 runtime verification
 - 모든 `.pyw` compile
 
 ## 저장소 운영
 
 - `main`: 실제 음원 검증까지 끝난 안정 버전
-- `upgrade/channel-aware-v2`: v3.5 개발·실파일 검증 브랜치
-- Draft PR #2는 v3.5 실제 Suno WAV 검증 후에만 `main`에 병합합니다.
+- `upgrade/channel-aware-v2`: v3.6 개발·실파일 검증 브랜치
+- Draft PR #2는 v3.6 실제 Suno WAV 검증 후에만 `main`에 병합합니다.
