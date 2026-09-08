@@ -8,6 +8,7 @@ from haru_mastering.analysis import analyze_file
 from haru_mastering.auto_finish import apply_click_safe_fade
 from haru_mastering.quality_gate import (
     classify_delay_diagnostic,
+    classify_tail_silence_difference,
     evaluate_master,
     lra_dynamics_risk,
 )
@@ -142,6 +143,45 @@ def test_quality_gate_detects_and_repairs_hard_cut_tail(tmp_path):
     )
     assert repaired.tail_hard_cut is False
     assert not any(issue.startswith("TAIL HARD CUT") for issue in repaired.issues)
+
+
+def test_minor_safe_tail_silence_difference_is_info_not_warn():
+    classification, note = classify_tail_silence_difference(
+        source_trailing_silence_ms=904.35,
+        processed_trailing_silence_ms=875.85,
+        duration_delta_ms=0.0,
+        tail_hard_cut=False,
+        tail_energetic_end=False,
+        tail_last_sample_dbfs=float("-inf"),
+    )
+    assert classification == "INFO"
+    assert "28.5 ms" in note
+    assert "silent and safe" in note
+
+
+def test_larger_tail_silence_difference_remains_warn():
+    classification, note = classify_tail_silence_difference(
+        source_trailing_silence_ms=950.0,
+        processed_trailing_silence_ms=850.0,
+        duration_delta_ms=0.0,
+        tail_hard_cut=False,
+        tail_energetic_end=False,
+        tail_last_sample_dbfs=float("-inf"),
+    )
+    assert classification == "WARN"
+    assert "100.0 ms" in note
+
+
+def test_unsafe_tail_difference_remains_warn_even_below_fifty_ms():
+    classification, _ = classify_tail_silence_difference(
+        source_trailing_silence_ms=904.35,
+        processed_trailing_silence_ms=875.85,
+        duration_delta_ms=0.0,
+        tail_hard_cut=True,
+        tail_energetic_end=False,
+        tail_last_sample_dbfs=-20.0,
+    )
+    assert classification == "WARN"
 
 
 def test_large_lra_change_is_safe_when_final_dynamics_are_healthy():
