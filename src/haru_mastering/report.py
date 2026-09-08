@@ -3,9 +3,11 @@ from __future__ import annotations
 import html
 import json
 import math
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, Iterable
 
+from .analysis import analyze_file
 from .quality_gate import QualityGateResult
 
 
@@ -19,19 +21,39 @@ def _json_safe(value: Any) -> Any:
     return value
 
 
+def _refresh_final_metrics(
+    output_dir: Path,
+    track: str,
+    result: QualityGateResult,
+) -> QualityGateResult:
+    """Use the actual final WAV after Tail/codec post-processing in reports."""
+    final_path = output_dir / f"{Path(track).stem}_MASTER.wav"
+    if not final_path.exists():
+        return result
+    try:
+        actual = analyze_file(final_path)
+    except Exception:
+        return result
+    return replace(result, processed=actual)
+
+
 def write_quality_reports(
     output_dir: str | Path,
     rows: Iterable[tuple[str, QualityGateResult]],
 ) -> tuple[Path, Path]:
     output = Path(output_dir)
     output.mkdir(parents=True, exist_ok=True)
-    items = list(rows)
+    items = [
+        (track, _refresh_final_metrics(output, track, result))
+        for track, result in rows
+    ]
 
     json_path = output / "HARU_QUALITY_GATE.json"
-    json_payload = [
-        _json_safe({"track": track, **result.to_dict()})
-        for track, result in items
-    ]
+    json_payload = []
+    for track, result in items:
+        payload = {"track": track, **result.to_dict()}
+        payload["crest_factor_change_db"] = -float(result.crest_factor_loss_db)
+        json_payload.append(_json_safe(payload))
     json_path.write_text(
         json.dumps(json_payload, ensure_ascii=False, indent=2, allow_nan=False),
         encoding="utf-8",
@@ -46,13 +68,14 @@ def write_quality_reports(
         details = list(result.issues) + list(result.warnings)
         detail_text = " / ".join(details) if details else "OK"
         delay = "?" if result.residual_delay_samples is None else str(result.residual_delay_samples)
-        if result.tail_energetic_end:
-            tail = "ENERGETIC END"
-        elif result.tail_hard_cut:
+        if result.tail_hard_cut:
             tail = "HARD CUT"
+        elif result.tail_energetic_end:
+            tail = "ENERGETIC"
         else:
             tail = "SAFE"
         dynamics = "RISK" if result.lra_guard_triggered else "SAFE"
+        crest_change = -float(result.crest_factor_loss_db)
         table_rows.append(
             "<tr>"
             f"<td>{html.escape(track)}</td>"
@@ -61,7 +84,7 @@ def write_quality_reports(
             f"<td>{result.processed.true_peak_dbtp:.2f}</td>"
             f"<td>{result.processed.lra_lu:.2f}</td>"
             f"<td>{result.lra_reduction_lu:.2f}</td>"
-            f"<td>{result.crest_factor_loss_db:.2f}</td>"
+            f"<td>{crest_change:+.2f}</td>"
             f"<td>{dynamics}</td>"
             f"<td>{result.low_band_stereo_correlation:.3f}</td>"
             f"<td>{delay}</td>"
@@ -82,12 +105,12 @@ def write_quality_reports(
         "table{border-collapse:collapse;width:100%;font-size:12px}th,td{border:1px solid #ddd;"
         "padding:6px;text-align:left}th{background:#f3f3f3}.summary{font-size:18px;margin:12px 0 20px}"
         "</style></head><body>"
-        "<h1>HARU Mastering Quality Gate v3.2</h1>"
+        "<h1>HARU Mastering Quality Gate v3.3</h1>"
         f"<div class='summary'>PASS {counts.get('PASS',0)} / WARN {counts.get('WARN',0)} / FAIL {counts.get('FAIL',0)}</div>"
         "<table><thead><tr><th>Track</th><th>Status</th><th>LUFS-I</th><th>dBTP</th>"
-        "<th>LRA</th><th>LRA 감소</th><th>Crest 손실</th><th>Dynamics</th>"
-        "<th>저역상관</th><th>Delay</th><th>Tail</th><th>End RMS</th>"
-        "<th>Last Sample</th><th>Duration Δ</th><th>Notes</th>"
+        "<th>LRA</th><th>LRA 감소</th><th>Crest 변화</th><th>Dynamics</th>"
+        "<th>저역상관</th><th>Delay</th><th>Tail</th>"
+        "<th>End RMS</th><th>Last Sample</th><th>Duration Δ</th><th>Notes</th>"
         "</tr></thead><tbody>"
         + "".join(table_rows)
         + "</tbody></table></body></html>",
