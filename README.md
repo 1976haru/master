@@ -1,85 +1,85 @@
-# HARU Mastering v3
+# HARU Mastering v3.1 AUTO FINISH
 
-Windows 10/11용 오프라인 중심 배치 마스터링·음원 진단·선택적 복원 프로그램입니다.
+Windows 10/11용 오프라인 중심 배치 마스터링·자동 품질검사·자동수정 프로그램입니다.
 
-## 기본 원칙
+## 사용자는 이것만 하면 됩니다
 
-- 원본 파일을 절대 덮어쓰지 않습니다.
-- 정상곡은 불필요한 복원을 하지 않습니다.
-- 먼저 분석하고, 문제가 있을 때만 최소한으로 처리합니다.
-- 기본 마스터링은 AI 패키지가 없어도 동작합니다.
-- 무거운 AI 복원 기능은 `INSTALL_AI_TOOLS.bat`로 별도 설치합니다.
-- 기본 출력은 48 kHz / 24-bit WAV입니다.
+1. Suno Studio에서 WAV를 내보냅니다.
+2. 15곡을 한 폴더에 모읍니다.
+3. `RUN.bat` 실행 → 폴더 선택 → 장르 선택 → `품질+` → 시작.
+4. 완료 후 `01_RELEASE_READY` 폴더의 WAV만 유튜브/음원유통에 사용합니다.
 
-## 채널 프로필
+LUFS, LRA, dBTP, 위상, Tail을 사용자가 직접 판단할 필요가 없습니다.
 
-- `old_pop_lounge`: 따뜻하고 성숙하며 장시간 들어도 피곤하지 않은 사운드
-- `old_pop_lounge_french_chanson`: 프랑스어 자음·모음과 대화형 보컬을 보존하는 샹송 프로필
-- `chili_lab`: 가까운 보컬, 타이트한 저역, 도시적인 Chill Rap / Urban Soul
-- `chili_lab_ja`: 일본어 모라 리듬과 발음 명료도를 보존하는 일본어 CHILI LAB
-- `showa_seventies`: 1970년대 일본 New Music·포크·가요의 절제된 중저역과 부드러운 고역
-
-## v3 처리 구조
+## v3.1 자동 처리 구조
 
 ```text
-Input
+원본 WAV
   ↓
-Channel Profile
-  ↓
-LUFS / True Peak / LRA / Spectrum / Stereo / DC 분석
-  ↓
-기본 Channel-Aware Mastering
-  ↓
-FFmpeg limiter latency compensation
-  ↓
-48 kHz / 24-bit WAV
+채널/장르 프로필 마스터링
   ↓
 Quality Gate
-  ├─ LUFS
-  ├─ 4x True Peak
-  ├─ clipping / DC
-  ├─ full-band stereo correlation
-  ├─ low-band(110 Hz 이하) stereo correlation
-  ├─ residual delay samples
+  ├─ LUFS / 4x True Peak / clipping / DC
+  ├─ full-band + 110 Hz 이하 stereo correlation
+  ├─ residual delay ±1 sample
   ├─ duration loss
-  └─ tail review
+  ├─ 장르별 LRA 감소 한도
+  └─ Tail Hard Cut
   ↓
-PASS / WARN / FAIL
+문제 자동수정 (최대 2회)
+  ├─ LRA 과도 감소 → Compressor 자동 완화 후 재마스터
+  ├─ Tail Hard Cut → 25 ms click-safe fade + 마지막 sample 0
+  └─ AAC/MP3 피크 초과 → ceiling 0.20 dB씩 낮춰 재마스터
   ↓
-HTML + JSON report
+AAC 256 / MP3 320 round-trip 안전검사
+  ↓
+최종 분류
+  ├─ 01_RELEASE_READY
+  ├─ 02_NEEDS_REVIEW
+  ├─ 03_REPORT
+  └─ 04_CODEC_PREVIEW
 ```
 
-## 선택적 고급 기능
+## 장르별 다이내믹 보호
 
-프로그램의 `⑤ 고급 복원 / 품질검사` 탭에서 사용할 수 있습니다.
+자동 재마스터링 기준은 모든 장르에 똑같이 적용하지 않습니다.
 
-### Noise Repair
+- OLD POP: LRA 감소 최대 0.60 LU
+- BALLAD: 0.80 LU
+- JAZZ: 0.50 LU
+- R&B: 0.90 LU
+- SOUL: 0.80 LU
+- CHANSON: 0.50 LU
+- CHILI EN / JP: 0.80 LU
+- SHOWA JP: 0.50 LU
 
-`noisereduce` 기반 보수적 spectral-gate 처리를 사용합니다. 음악 전체에 강하게 적용하지 않고 실제 지속 노이즈가 있을 때만 사용합니다.
+OLD POP/SHOWA/Chanson은 여백을 더 강하게 보존하고 R&B/CHILI는 장르 특성상 조금 더 넓게 허용합니다.
 
-### DeepFilterNet
+## 기본 안전 원칙
 
-`Rikorose/DeepFilterNet`을 선택적 복원 엔진으로 연결합니다. MIT/Apache-2.0 계열이며, 보컬/음성성 노이즈 복원에 사용합니다. 실행 시 delay compensation을 켭니다.
+- 원본 파일은 절대 덮어쓰지 않습니다.
+- 기본 출력은 48 kHz / 24-bit WAV입니다.
+- 기존 5 ms / 240-sample limiter 지연은 latency compensation + 회귀 테스트로 방지합니다.
+- DeepFilterNet, noisereduce, stem 분리는 정상곡에 자동 적용하지 않습니다.
+- AI 복원은 실제 문제곡에만 선택적으로 사용합니다.
 
-### Vocal / Instrument Stem
+## 결과 폴더
 
-`nomadkaraoke/python-audio-separator`를 선택적으로 연결합니다. MIT 라이선스 프로젝트이며 Vocal/Instrumental 등 stem 분리에 사용합니다. 모델은 첫 사용 때 다운로드될 수 있으며 캐시 후 로컬 실행이 가능합니다.
+```text
+MASTER_장르_AUTO_날짜시간
+├─ 01_RELEASE_READY       ← 이것만 사용
+├─ 02_NEEDS_REVIEW        ← 자동 해결 한도 초과, 배포하지 않음
+├─ 03_REPORT
+│  ├─ 초보자_최종판정.txt
+│  ├─ mastering_report.csv
+│  ├─ HARU_QUALITY_GATE.html
+│  └─ HARU_QUALITY_GATE.json
+└─ 04_CODEC_PREVIEW
+```
 
-### Reference Assist
+`초보자_최종판정.txt`에는 `배포 가능` 또는 `배포 보류 곡 있음`이 큰 글자 대신 단순 문장으로 기록됩니다.
 
-GPL 프로젝트 코드를 복사하지 않고 자체 bounded spectral matching을 구현했습니다. Reference와의 대역별 차이를 분석하되 채널 프로필의 `maxAutomaticEqDb` 이상으로 보정하지 않습니다. 전체 음량 차이는 EQ 보정에서 제거합니다.
-
-### Codec Preview
-
-완성 파일을 AAC 256 kbps / MP3 320 kbps로 인코딩한 뒤 다시 디코딩하여 LUFS와 True Peak를 측정합니다. 실제 플랫폼 압축 후 피크 변화를 미리 확인할 수 있습니다.
-
-## 5 ms 지연 재발 방지
-
-기존 프로그램에서 FFmpeg `alimiter`의 5 ms lookahead 때문에 48 kHz 기준 240 samples 지연이 발생했습니다.
-
-v2/v3에서는 limiter에 latency compensation을 적용하고, Quality Gate와 자동 테스트에서 residual delay가 ±1 sample을 넘으면 FAIL 처리합니다. 240-sample 지연을 의도적으로 만든 회귀 테스트도 포함되어 있습니다.
-
-## 설치
+## 설치 / 실행
 
 기본 설치:
 
@@ -87,47 +87,52 @@ v2/v3에서는 limiter에 latency compensation을 적용하고, Quality Gate와 
 INSTALL.bat
 ```
 
-실행:
+기본 실행(v3.1):
 
 ```bat
 RUN.bat
 ```
 
-선택적 AI 복원 도구 설치:
+선택적 AI 도구 설치:
 
 ```bat
 INSTALL_AI_TOOLS.bat
 ```
 
-문제가 있을 때 v2 실행:
+문제가 있을 때 이전 버전으로 즉시 복귀:
 
 ```bat
+RUN_V3.bat
 RUN_V2.bat
-```
-
-기존 v1.1 실행:
-
-```bat
 RUN_LEGACY.bat
 ```
 
+## 선택적 고급 기능
+
+`⑤ 고급 복원 / 품질검사` 탭에는 다음 기능이 유지됩니다.
+
+- noisereduce Noise Repair
+- DeepFilterNet
+- python-audio-separator Vocal / Instrument Stem
+- 자체 bounded Reference Assist
+- 수동 AAC/MP3 Codec Preview
+- 수동 원본 ↔ 마스터 Quality Gate
+
+이 기능들은 정상곡에 무조건 적용하지 않습니다.
+
 ## 자동 테스트
 
-GitHub Actions에서 Windows + Python 3.12 환경으로 다음을 자동 검사합니다.
+GitHub Actions / Windows / Python 3.12에서 다음을 자동 검사합니다.
 
 - 전체 pytest
-- v2 core verification
-- v3 feature verification
-- v3 runtime import
-- v1/v2/v3 `.pyw` compile
+- 240-sample 지연 검출 회귀 테스트
+- Tail Hard Cut 검출 및 자동 fade 테스트
+- RELEASE_READY / NEEDS_REVIEW 분리 테스트
+- v2 core / v3 feature / v3 runtime / v3.1 runtime verification
+- v1 / v2 / v3 / v3.1 `.pyw` compile
 
 ## 저장소 운영
 
-- `main`: 검증된 안정 버전
-- `upgrade/channel-aware-v2`: 현재 v3 개발/검증 브랜치
-- 큰 변경은 Pull Request에서 테스트 후 병합
-- 원본 음원, 출력 WAV, AI 모델, `.venv`, API 키는 Git에 저장하지 않음
-
-## 현재 상태
-
-v3 코드 통합과 자동 회귀 테스트는 완료 단계입니다. Draft PR #2는 실제 Suno WAV로 A/B 청취, residual delay 0~1 sample, tail preservation, 채널별 음색을 최종 확인하기 전에는 `main`에 병합하지 않습니다.
+- `main`: 실제 음원 검증까지 끝난 안정 버전
+- `upgrade/channel-aware-v2`: v3.1 개발/실파일 검증 브랜치
+- Draft PR #2는 실제 Suno WAV 검증이 끝날 때까지 `main`에 병합하지 않습니다.
