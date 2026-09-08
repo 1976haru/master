@@ -39,6 +39,37 @@ def _tail_candidate_values(auto_cfg: dict) -> tuple[float, ...]:
     return values or (400.0, 600.0, 800.0, 1200.0)
 
 
+def _repair_with_config(path: Path, auto_cfg: dict) -> TailRepairResult:
+    candidates = _tail_candidate_values(auto_cfg)
+    repair = repair_tail_automatically(
+        path,
+        window_ms=float(auto_cfg.get("tailWindowMs", 100.0)),
+        end_rms_threshold_dbfs=float(auto_cfg.get("tailEndRmsThresholdDbfs", -50.0)),
+        last_sample_threshold_dbfs=float(auto_cfg.get("tailLastSampleThresholdDbfs", -60.0)),
+        energetic_end_threshold_dbfs=float(auto_cfg.get("energeticTailThresholdDbfs", -35.0)),
+        energetic_fade_ms=float(auto_cfg.get("energeticTailFadeMs", candidates[0])),
+        energetic_fade_candidates_ms=candidates,
+        energetic_target_margin_db=float(auto_cfg.get("energeticTailTargetMarginDb", 0.5)),
+        maximum_energetic_fade_ms=float(auto_cfg.get("energeticTailMaximumFadeMs", 1200.0)),
+        hard_cut_fade_ms=float(auto_cfg.get("hardCutAutoFadeMs", 25.0)),
+        micro_fade_ms=float(auto_cfg.get("microFadeMs", 5.0)),
+        micro_fade_last_sample_threshold_dbfs=float(
+            auto_cfg.get("microFadeLastSampleThresholdDbfs", -80.0)
+        ),
+    )
+    _TAIL_RESULTS[str(Path(path).resolve())] = repair
+    return repair
+
+
+def _adaptive_tail_after_alignment(path: Path, auto_cfg: dict) -> None:
+    _repair_with_config(Path(path), auto_cfg)
+
+
+# v3.4 calls this global after sample alignment. Replace it so the aligned file
+# also receives the v3.5 adaptive fade ladder and the final diagnostics are kept.
+v34._repair_tail_after_alignment = _adaptive_tail_after_alignment
+
+
 class AppV35(v34.AppV34):
     def __init__(self):
         super().__init__()
@@ -63,23 +94,7 @@ class AppV35(v34.AppV34):
         return super().append_log(value)
 
     def _repair_tail(self, dst: Path, auto_cfg: dict, fixes: list[str]):
-        candidates = _tail_candidate_values(auto_cfg)
-        repair = repair_tail_automatically(
-            dst,
-            window_ms=float(auto_cfg.get("tailWindowMs", 100.0)),
-            end_rms_threshold_dbfs=float(auto_cfg.get("tailEndRmsThresholdDbfs", -50.0)),
-            last_sample_threshold_dbfs=float(auto_cfg.get("tailLastSampleThresholdDbfs", -60.0)),
-            energetic_end_threshold_dbfs=float(auto_cfg.get("energeticTailThresholdDbfs", -35.0)),
-            energetic_fade_ms=float(auto_cfg.get("energeticTailFadeMs", candidates[0])),
-            energetic_fade_candidates_ms=candidates,
-            energetic_target_margin_db=float(auto_cfg.get("energeticTailTargetMarginDb", 0.5)),
-            maximum_energetic_fade_ms=float(auto_cfg.get("energeticTailMaximumFadeMs", 1200.0)),
-            hard_cut_fade_ms=float(auto_cfg.get("hardCutAutoFadeMs", 25.0)),
-            micro_fade_ms=float(auto_cfg.get("microFadeMs", 5.0)),
-            micro_fade_last_sample_threshold_dbfs=float(
-                auto_cfg.get("microFadeLastSampleThresholdDbfs", -80.0)
-            ),
-        )
+        repair = _repair_with_config(dst, auto_cfg)
         labels = {
             "musical_tail_fade": f"Tail {repair.fade_ms:.0f}ms 적응형 음악적 감쇠",
             "click_safe_fade": f"Tail {repair.fade_ms:.0f}ms 클릭방지",
@@ -87,7 +102,6 @@ class AppV35(v34.AppV34):
         }
         if repair.mode in labels:
             v34.v33.v32._append_unique(fixes, labels[repair.mode])
-        _TAIL_RESULTS[str(Path(dst).resolve())] = repair
         return repair
 
     def _patch_csv_with_adaptive_tail(self, output_dir: Path) -> int:
