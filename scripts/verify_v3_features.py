@@ -28,6 +28,15 @@ def main() -> int:
         reference_audio[:, 1] += presence
         reference_audio -= np.mean(reference_audio, axis=0, keepdims=True)
 
+        # v3.1 considers a loud final sample unsafe. Verification audio should model
+        # a normally finished music file rather than an artificial hard cut.
+        fade_frames = int(round(sr * 0.10))
+        fade = np.linspace(1.0, 0.0, fade_frames)[:, None]
+        audio[-fade_frames:] *= fade
+        reference_audio[-fade_frames:] *= fade
+        audio[-1] = 0.0
+        reference_audio[-1] = 0.0
+
         source = root / "source.wav"
         master = root / "master.wav"
         reference = root / "reference.wav"
