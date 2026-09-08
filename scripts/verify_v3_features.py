@@ -21,10 +21,12 @@ def main() -> int:
         mono = rng.normal(0.0, 0.025, size=sr * 2)
         side = rng.normal(0.0, 0.003, size=sr * 2)
         audio = np.column_stack([mono + side, mono - side])
+        audio -= np.mean(audio, axis=0, keepdims=True)
         reference_audio = audio.copy()
         presence = 0.01 * np.sin(2 * np.pi * 3200 * np.arange(sr * 2) / sr)
         reference_audio[:, 0] += presence
         reference_audio[:, 1] += presence
+        reference_audio -= np.mean(reference_audio, axis=0, keepdims=True)
 
         source = root / "source.wav"
         master = root / "master.wav"
@@ -45,7 +47,8 @@ def main() -> int:
 
     if gate.status != "PASS" or gate.residual_delay_samples != 0:
         raise RuntimeError(
-            f"Quality Gate verification failed: {gate.status}, delay={gate.residual_delay_samples}"
+            f"Quality Gate verification failed: {gate.status}, "
+            f"delay={gate.residual_delay_samples}, issues={gate.issues}"
         )
 
     tools = detect_optional_tools()
