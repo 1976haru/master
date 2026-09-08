@@ -7,8 +7,8 @@
 from __future__ import annotations
 
 import csv
-import json
 import shutil
+from dataclasses import replace
 from datetime import datetime
 from importlib.machinery import SourceFileLoader
 from importlib.util import module_from_spec, spec_from_loader
@@ -132,6 +132,7 @@ class AppV31(v3.AppV3):
                 dst = out_dir / f"{src.stem}_MASTER.wav"
                 fixes: list[str] = []
                 codec_result = None
+                codec_error = ""
                 result = None
                 render_ok = False
                 render_err = ""
@@ -147,13 +148,11 @@ class AppV31(v3.AppV3):
 
                     result = evaluate_master(src, dst, **gate_kwargs)
 
-                    # A hard end can click even when all loudness metrics pass. Repair automatically.
                     if result.tail_hard_cut:
                         apply_click_safe_fade(dst, fade_ms=fade_ms)
                         fixes.append(f"Tail {fade_ms:.0f}ms 자동 페이드")
                         result = evaluate_master(src, dst, **gate_kwargs)
 
-                    # Too much LRA loss means compression was stronger than the genre allows.
                     if _has_issue(result, "LRA reduction exceeded") and attempt < max_retries:
                         new_factor = max(0.30, factor * 0.65)
                         if new_factor < factor - 0.01:
@@ -162,14 +161,19 @@ class AppV31(v3.AppV3):
                             self.after(0, self.append_log, f"    ↻ LRA 보호 재마스터 {attempt + 1}/{max_retries}")
                             continue
 
-                    # Only codec-check a file that is otherwise safe.
                     if result.status == "PASS" and codec_enabled:
-                        codec_result = check_codec_safety(
-                            dst,
-                            true_peak_ceiling_dbtp=float(profile["truePeakCeilingDbtp"]),
-                            tolerance_db=codec_tolerance,
-                            ffmpeg=self.ffmpeg,
-                        )
+                        try:
+                            codec_result = check_codec_safety(
+                                dst,
+                                true_peak_ceiling_dbtp=float(profile["truePeakCeilingDbtp"]),
+                                tolerance_db=codec_tolerance,
+                                ffmpeg=self.ffmpeg,
+                            )
+                            codec_error = ""
+                        except Exception as exc:
+                            codec_result = None
+                            codec_error = f"codec verification failed: {exc}"
+                            break
                         if not codec_result.safe and attempt < max_retries:
                             current_tp -= codec_step
                             fixes.append(f"코덱 피크 보호 ceiling {current_tp:.2f} dBTP")
@@ -185,28 +189,39 @@ class AppV31(v3.AppV3):
                     unresolved.append((src.name, [notes]))
                     (out_dir / f"ERROR_{src.stem}.txt").write_text((render_err or "")[-5000:], encoding="utf-8", errors="ignore")
                 else:
-                    if codec_enabled and result.status == "PASS" and codec_result is None:
-                        codec_result = check_codec_safety(
-                            dst,
-                            true_peak_ceiling_dbtp=float(profile["truePeakCeilingDbtp"]),
-                            tolerance_db=codec_tolerance,
-                            ffmpeg=self.ffmpeg,
-                        )
-                    codec_safe = (codec_result.safe if codec_result is not None else True)
-                    if result.status == "PASS" and not codec_safe:
+                    if codec_enabled and result.status == "PASS" and codec_result is None and not codec_error:
+                        try:
+                            codec_result = check_codec_safety(
+                                dst,
+                                true_peak_ceiling_dbtp=float(profile["truePeakCeilingDbtp"]),
+                                tolerance_db=codec_tolerance,
+                                ffmpeg=self.ffmpeg,
+                            )
+                        except Exception as exc:
+                            codec_error = f"codec verification failed: {exc}"
+
+                    codec_safe = codec_result.safe if codec_result is not None else (not codec_enabled)
+                    if result.status == "PASS" and codec_error:
+                        status = "FAIL"
+                        notes = codec_error
+                        result = replace(result, status="FAIL", issues=result.issues + (notes,))
+                        unresolved.append((src.name, [notes]))
+                    elif result.status == "PASS" and not codec_safe:
                         status = "FAIL"
                         notes = f"codec peak unsafe: {codec_result.maximum_true_peak_dbtp:.2f} dBTP"
+                        result = replace(result, status="FAIL", issues=result.issues + (notes,))
                         unresolved.append((src.name, [notes]))
                     else:
                         status = result.status
                         notes = " / ".join(list(result.issues) + list(result.warnings))
                         if status != "PASS":
                             unresolved.append((src.name, list(result.issues) + list(result.warnings)))
-                    if codec_safe:
+
+                    if codec_result is not None and codec_result.safe:
                         codec_safe_count += 1
                     gate_results.append((src.name, result))
 
-                if fixes:
+                if fixes and status == "PASS":
                     auto_fixed_count += 1
                 release_rows.append((dst, status))
                 final = legacy.analyze_raw(self.ffmpeg, dst)[0] if dst.exists() else None
@@ -274,7 +289,7 @@ class AppV31(v3.AppV3):
         if review_count == 0:
             summary = (
                 f"자동완성 완료: {len(rows)}곡 전부 배포 가능\n"
-                f"자동 수정 {auto_fixed_count}곡 / 코덱 안전 {codec_safe_count}곡\n"
+                f"자동 수정 완료 {auto_fixed_count}곡 / 코덱 안전 {codec_safe_count}곡\n"
                 f"사용할 폴더: {paths['release']}"
             )
             title = "v3.1 자동완성 — 배포 가능"
