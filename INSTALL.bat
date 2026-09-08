@@ -8,7 +8,7 @@ set "PYTHONUTF8=1"
 title HARU SUNO 15SET MASTERING - INSTALL
 
 echo ============================================================
-echo HARU / SUNO 15SET MASTERING v3.3 - BASE INSTALL
+echo HARU / SUNO 15SET MASTERING v3.4 - BASE INSTALL
 echo ============================================================
 echo.
 
@@ -52,44 +52,48 @@ echo.
 if exist ".venv\Scripts\python.exe" (
     echo Existing virtual environment found.
 ) else (
-    echo [1/8] Creating virtual environment...
+    echo [1/9] Creating virtual environment...
     %PY_CMD% -m venv ".venv"
     if errorlevel 1 goto :FAIL
 )
 
-echo [2/8] Updating pip...
+echo [2/9] Updating pip...
 ".venv\Scripts\python.exe" -m pip install --upgrade pip
 if errorlevel 1 goto :FAIL
 
-echo [3/8] Installing FFmpeg helper and audio analysis libraries...
+echo [3/9] Installing FFmpeg helper and audio analysis libraries...
 ".venv\Scripts\python.exe" -m pip install --upgrade imageio-ffmpeg numpy scipy soundfile pyloudnorm
 if errorlevel 1 goto :FAIL
 
-echo [4/8] Installing HARU Mastering v3.3 core from this folder...
+echo [4/9] Installing HARU Mastering v3.4 core from this folder...
 ".venv\Scripts\python.exe" -m pip install -e .
 if errorlevel 1 goto :FAIL
 
-echo [5/8] Verifying v3 feature core...
+echo [5/9] Verifying v3 feature core...
 ".venv\Scripts\python.exe" .\scripts\verify_v3_features.py
 if errorlevel 1 goto :FAIL
 
-echo [6/8] Verifying v3 runtime adapter...
+echo [6/9] Verifying v3 runtime adapter...
 ".venv\Scripts\python.exe" .\scripts\verify_v3_app.py
 if errorlevel 1 goto :FAIL
 
-echo [7/8] Verifying v3.2 auto-finish adapter...
+echo [7/9] Verifying v3.2 auto-finish adapter...
 ".venv\Scripts\python.exe" .\scripts\verify_v31_app.py
 if errorlevel 1 goto :FAIL
 
-echo [8/8] Verifying v3.3 codec auto-gain adapter...
+echo [8/9] Verifying v3.3 codec auto-gain adapter...
 ".venv\Scripts\python.exe" .\scripts\verify_v33_app.py
+if errorlevel 1 goto :FAIL
+
+echo [9/9] Verifying v3.4 smart delay adapter...
+".venv\Scripts\python.exe" .\scripts\verify_v34_app.py
 if errorlevel 1 goto :FAIL
 
 echo.
 echo ============================================================
 echo INSTALL COMPLETE
 
-echo HARU Mastering v3.3 CODEC AUTO GAIN engine is ready.
+echo HARU Mastering v3.4 SMART DELAY GUARD engine is ready.
 echo Use RUN.bat, choose folder + genre + QUALITY+, then start.
 echo Use only WAV files inside 01_RELEASE_READY after completion.
 echo Optional AI repair tools are NOT required for normal mastering.
