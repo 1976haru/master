@@ -84,18 +84,26 @@ Quality Gate를 통과하지 못하면 원본을 보존하고 `WARN` 또는 `FAI
 
 DeepFilterNet 같은 음성 향상 모델은 전체 음악 믹스에 항상 적용하지 않는다. 보컬 stem이 분리됐고 실제 잡음이 확인된 경우에만 낮은 강도로 사용한다. 처리 전후 스펙트럼 손실과 금속성 artifact를 자동 비교한다.
 
-### 5.3 Stem-aware Rescue — 실험 기능
+### 5.3 Spectral Gate Repair — 선택 기능
 
-- 보컬 / 드럼 / 베이스 / 기타를 임시 분리한다.
+- 일정한 히스·룸노이즈가 실제로 검출된 경우에만 spectral gate를 사용한다.
+- 감소량을 낮게 제한하고 transient와 high-frequency decay 손실을 비교한다.
+- 전체 음악에 기본 적용하지 않는다.
+- 무음 구간이 없거나 noise profile 신뢰도가 낮으면 자동으로 건너뛴다.
+
+### 5.4 Stem-aware Rescue — 실험 기능
+
+- `python-audio-separator` 같은 통합 도구를 통해 보컬 / 드럼 / 베이스 / 기타 stem을 임시 분리한다.
 - 보컬 치찰음, 베이스 공진, 드럼 피크를 stem별로 아주 약하게 제어한다.
 - 원본과 재합성 결과의 null difference와 artifact score를 검사한다.
 - 분리 artifact가 기준을 넘으면 전체 믹스 처리로 자동 복귀한다.
+- 모델 파일은 Git에 넣지 않고 사용자의 로컬 캐시에 별도 저장한다.
 
-### 5.4 Reference Assist — 선택 기능
+### 5.5 Reference Assist — 선택 기능
 
 참조곡과 음색·스테레오·다이내믹을 비교하되 그대로 복제하지 않는다. 차이를 보고서로 보여주고, 자동 EQ 변화량은 프로필 상한 안에서만 허용한다.
 
-### 5.5 Codec Preview
+### 5.6 Codec Preview
 
 - WAV 결과를 임시 AAC/MP3로 인코딩한다.
 - 인코딩 후 True Peak와 고역 artifact를 다시 측정한다.
@@ -108,12 +116,14 @@ DeepFilterNet 같은 음성 향상 모델은 전체 음악 믹스에 항상 적�
 - `pyloudnorm`: BS.1770 기반 LUFS 측정. MIT 라이선스.
 - `libebur128` 또는 FFmpeg `ebur128/loudnorm`: 독립 검증용 보조 측정기.
 - `DeepFilterNet`: 선택적 보컬 잡음 복원 연구. MIT 또는 Apache-2.0 이중 라이선스.
+- `python-audio-separator`: MDX-Net, VR, Demucs, MDXC 계열 모델을 한 인터페이스로 다루는 stem 분리 후보. MIT 라이선스. 모델별 라이선스는 별도 확인한다.
+- `noisereduce`: stationary / non-stationary spectral gating 연구 후보. 실제 noise profile이 검출된 경우에만 낮은 강도로 사용한다.
 
 ### 참고만 하거나 선택 기능으로 분리
 
 - `Matchering`: 참조곡 기반 frequency response, RMS, peak, stereo width 매칭 아이디어 참고. GPLv3이므로 코드를 직접 포함하기 전에 프로젝트 라이선스 결정 필요.
 - `Spotify Pedalboard`: 고품질 오디오 I/O·효과 체인 참고. GPLv3이므로 핵심 의존성 채택 여부를 별도 결정.
-- `Demucs`: stem 분리 연구용 후보지만 원 저장소가 archived 상태이므로 핵심 기능으로 고정하지 않는다.
+- `Demucs`: 원 저장소가 archived 상태이므로 직접 핵심 의존성으로 고정하지 않고, 유지되는 통합 인터페이스나 검증된 모델을 선택적으로 사용한다.
 
 ## 7. 개발 순서
 
