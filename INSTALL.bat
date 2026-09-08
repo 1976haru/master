@@ -2,6 +2,9 @@
 setlocal EnableExtensions
 cd /d "%~dp0"
 
+chcp 65001 >nul
+set "PYTHONUTF8=1"
+
 title SUNO 15SET MASTERING - INSTALL
 
 echo ============================================================
@@ -49,22 +52,28 @@ echo.
 if exist ".venv\Scripts\python.exe" (
     echo Existing virtual environment found.
 ) else (
-    echo [1/3] Creating virtual environment...
+    echo [1/4] Creating virtual environment...
     %PY_CMD% -m venv ".venv"
     if errorlevel 1 goto :FAIL
 )
 
-echo [2/3] Updating pip...
+echo [2/4] Updating pip...
 ".venv\Scripts\python.exe" -m pip install --upgrade pip
 if errorlevel 1 goto :FAIL
 
-echo [3/3] Installing FFmpeg helper...
-".venv\Scripts\python.exe" -m pip install --upgrade imageio-ffmpeg
+echo [3/4] Installing FFmpeg helper and audio analysis libraries...
+".venv\Scripts\python.exe" -m pip install --upgrade imageio-ffmpeg numpy scipy soundfile pyloudnorm
+if errorlevel 1 goto :FAIL
+
+echo [4/4] Installing HARU Mastering v2 core from this folder...
+".venv\Scripts\python.exe" -m pip install -e .
 if errorlevel 1 goto :FAIL
 
 echo.
 echo ============================================================
 echo INSTALL COMPLETE
+
+echo FFmpeg helper + HARU Mastering v2 analysis core are ready.
 echo ============================================================
 echo You can now run RUN.bat or START_HERE.bat.
 echo.
@@ -75,8 +84,9 @@ exit /b 0
 echo.
 echo ============================================================
 echo INSTALL FAILED
-echo ============================================================
+
 echo Take a screenshot of this window and send it to ChatGPT.
+echo ============================================================
 echo.
 pause
 exit /b 1
