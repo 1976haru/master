@@ -3,9 +3,14 @@ from __future__ import annotations
 import numpy as np
 import soundfile as sf
 
+from haru_mastering.alignment import DelayDiagnostic
 from haru_mastering.analysis import analyze_file
 from haru_mastering.auto_finish import apply_click_safe_fade
-from haru_mastering.quality_gate import evaluate_master, lra_dynamics_risk
+from haru_mastering.quality_gate import (
+    classify_delay_diagnostic,
+    evaluate_master,
+    lra_dynamics_risk,
+)
 
 
 def _music_like_noise(sr: int, seconds: int, seed: int, *, safe_tail: bool = True) -> np.ndarray:
@@ -39,13 +44,52 @@ def test_quality_gate_passes_identical_audio(tmp_path):
 
     assert result.status == "PASS", result.issues
     assert result.residual_delay_samples == 0
+    assert result.delay_classification == "PASS"
     assert result.low_band_stereo_correlation >= 0.70
     assert result.tail_hard_cut is False
 
 
+def test_quality_gate_keeps_four_sample_estimator_shift_as_info(tmp_path):
+    sr = 48000
+    audio = _music_like_noise(sr, 4, 11)
+    shifted = np.vstack([audio[4:], np.zeros((4, 2), dtype=np.float64)])
+    source = tmp_path / "source.wav"
+    processed = tmp_path / "processed.wav"
+    sf.write(source, audio, sr, subtype="PCM_24")
+    sf.write(processed, shifted, sr, subtype="PCM_24")
+
+    metrics = analyze_file(processed)
+    result = evaluate_master(
+        source,
+        processed,
+        target_lufs_i=metrics.lufs_i,
+        true_peak_ceiling_dbtp=metrics.true_peak_dbtp + 0.1,
+        delay_window_seconds=0.5,
+    )
+
+    assert result.status == "PASS", result.issues
+    assert result.residual_delay_samples == -4
+    assert result.delay_classification == "INFO"
+    assert "below correction threshold" in result.delay_note
+
+
+def test_delay_between_nine_and_forty_seven_is_report_only():
+    diagnostic = DelayDiagnostic(
+        delay_samples=20,
+        window_estimates_samples=(20, 20, 19, 20, 21),
+        window_peak_correlations=(0.9, 0.9, 0.9, 0.9, 0.9),
+        confidence=0.97,
+        consistent=True,
+        spread_samples=2,
+    )
+    classification, note = classify_delay_diagnostic(diagnostic)
+    assert classification == "WARN"
+    assert "no audio shift applied" in note
+
+
 def test_quality_gate_detects_240_sample_delay(tmp_path):
     sr = 48000
-    audio = _music_like_noise(sr, 2, 7)
+    audio = _music_like_noise(sr, 4, 7)
     delayed = np.vstack([np.zeros((240, 2)), audio[:-240]])
     source = tmp_path / "source.wav"
     processed = tmp_path / "processed.wav"
@@ -58,10 +102,14 @@ def test_quality_gate_detects_240_sample_delay(tmp_path):
         processed,
         target_lufs_i=metrics.lufs_i,
         true_peak_ceiling_dbtp=metrics.true_peak_dbtp + 0.1,
+        delay_window_seconds=0.5,
     )
 
     assert result.status == "FAIL"
     assert result.residual_delay_samples == 240
+    assert result.delay_classification == "FAIL"
+    assert result.delay_consistent is True
+    assert result.delay_confidence >= 0.70
     assert any("residual processing delay" in issue for issue in result.issues)
 
 
