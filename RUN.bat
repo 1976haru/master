@@ -15,5 +15,11 @@ if not exist ".venv\Scripts\pythonw.exe" (
     exit /b 1
 )
 
-start "" "%~dp0.venv\Scripts\pythonw.exe" "%~dp0Suno15_Mastering.pyw"
+if exist "%~dp0Suno15_Mastering_v2.pyw" (
+    start "" "%~dp0.venv\Scripts\pythonw.exe" "%~dp0Suno15_Mastering_v2.pyw"
+) else (
+    echo v2 adapter not found. Starting legacy application.
+    start "" "%~dp0.venv\Scripts\pythonw.exe" "%~dp0Suno15_Mastering.pyw"
+)
+
 exit /b 0
