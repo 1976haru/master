@@ -1,5 +1,5 @@
 {
-  "schemaVersion": "2.0.0",
+  "schemaVersion": "3.1.0",
   "description": "Analysis-driven safe defaults. Processing amounts are ceilings, not mandatory boosts or cuts.",
   "global": {
     "workingSampleRateHz": 48000,
@@ -41,6 +41,29 @@
       "rejectOnUnexpectedDurationLoss": true,
       "rejectOnTailCut": true,
       "rejectOnNaNOrInfinity": true
+    },
+    "autoFinish": {
+      "enabled": true,
+      "maximumAutoRerenders": 2,
+      "tailWindowMs": 100,
+      "tailEndRmsThresholdDbfs": -50.0,
+      "tailLastSampleThresholdDbfs": -60.0,
+      "hardCutAutoFadeMs": 25.0,
+      "codecPreviewEnabled": true,
+      "codecTruePeakSafetyMarginDb": 0.05,
+      "codecCeilingStepDb": 0.20,
+      "keepCodecPreviewAudio": false,
+      "genreLraReductionLimitLu": {
+        "OLD POP": 0.60,
+        "BALLAD": 0.80,
+        "JAZZ": 0.50,
+        "R&B": 0.90,
+        "SOUL": 0.80,
+        "CHANSON": 0.50,
+        "CHILI EN": 0.80,
+        "CHILI JP": 0.80,
+        "SHOWA JP": 0.50
+      }
     }
   },
   "profiles": {
