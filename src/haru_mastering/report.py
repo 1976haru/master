@@ -8,10 +8,11 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from .analysis import analyze_file
+from .auto_finish import inspect_tail
 from .quality_gate import QualityGateResult
 
 
-QUALITY_REPORT_VERSION = "v3.5"
+QUALITY_REPORT_VERSION = "v3.6"
 
 
 def _json_safe(value: Any) -> Any:
@@ -29,12 +30,19 @@ def _refresh_final_metrics(
     track: str,
     result: QualityGateResult,
 ) -> QualityGateResult:
-    """Use the actual final WAV after Tail/codec/alignment post-processing in reports."""
+    """Use the actual final WAV after Tail, codec and alignment post-processing."""
     final_path = output_dir / f"{Path(track).stem}_MASTER.wav"
     if not final_path.exists():
         return result
     try:
         actual = analyze_file(final_path)
+        final_tail = inspect_tail(
+            final_path,
+            window_ms=100.0,
+            end_rms_threshold_dbfs=-50.0,
+            last_sample_threshold_dbfs=-60.0,
+            energetic_end_threshold_dbfs=-35.0,
+        )
     except Exception:
         return result
 
@@ -44,7 +52,16 @@ def _refresh_final_metrics(
         warning = f"codec safety attenuation applied: -{post_gain:.2f} dB"
         if warning not in warnings:
             warnings = warnings + (warning,)
-    return replace(result, processed=actual, warnings=warnings)
+
+    return replace(
+        result,
+        processed=actual,
+        warnings=warnings,
+        tail_end_rms_dbfs=final_tail.end_rms_dbfs,
+        tail_last_sample_dbfs=final_tail.last_sample_dbfs,
+        tail_hard_cut=final_tail.hard_cut,
+        tail_energetic_end=final_tail.energetic_end,
+    )
 
 
 def write_quality_reports(
@@ -81,7 +98,11 @@ def write_quality_reports(
         detail_text = " / ".join(dict.fromkeys(details)) if details else "OK"
         delay = "?" if result.residual_delay_samples is None else str(result.residual_delay_samples)
         delay_windows = ",".join(str(value) for value in result.delay_window_estimates_samples) or "?"
-        delay_confidence = f"{result.delay_confidence:.2f}" if result.delay_window_estimates_samples else "?"
+        delay_confidence = (
+            f"{result.delay_confidence:.2f}"
+            if result.delay_window_estimates_samples
+            else "?"
+        )
         delay_class = result.delay_classification
         if result.delay_auto_aligned:
             delay_class = "AUTO-ALIGNED"
