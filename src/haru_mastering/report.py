@@ -12,7 +12,7 @@ from .auto_finish import inspect_tail
 from .quality_gate import QualityGateResult
 
 
-QUALITY_REPORT_VERSION = "v3.6"
+QUALITY_REPORT_VERSION = "v3.6.1"
 
 
 def _json_safe(value: Any) -> Any:
@@ -95,6 +95,8 @@ def write_quality_reports(
         details = list(result.issues) + list(result.warnings)
         if result.delay_note and result.delay_classification in {"INFO", "WARN"}:
             details.append(result.delay_note)
+        if result.tail_note:
+            details.append(result.tail_note)
         detail_text = " / ".join(dict.fromkeys(details)) if details else "OK"
         delay = "?" if result.residual_delay_samples is None else str(result.residual_delay_samples)
         delay_windows = ",".join(str(value) for value in result.delay_window_estimates_samples) or "?"
