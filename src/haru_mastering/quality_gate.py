@@ -10,7 +10,7 @@ import numpy as np
 import soundfile as sf
 from scipy.signal import butter, resample_poly, sosfilt, sosfiltfilt
 
-from .alignment import estimate_delay_samples
+from .alignment import DelayDiagnostic, estimate_delay_diagnostic
 from .analysis import AudioMetrics, analyze_array
 
 
@@ -20,6 +20,13 @@ class QualityGateResult:
     issues: tuple[str, ...]
     warnings: tuple[str, ...]
     residual_delay_samples: int | None
+    delay_window_estimates_samples: tuple[int, ...]
+    delay_confidence: float
+    delay_consistent: bool
+    delay_classification: str
+    delay_note: str
+    delay_auto_aligned: bool
+    delay_original_samples: int | None
     duration_delta_ms: float
     low_band_stereo_correlation: float
     lra_reduction_lu: float
@@ -73,12 +80,7 @@ def lra_dynamics_risk(
     minimum_final_lra_lu: float,
     maximum_crest_factor_loss_db: float,
 ) -> bool:
-    """Return True only when LRA loss is accompanied by real dynamics risk.
-
-    LRA can move by more than a profile's preferred amount even when the final
-    program remains open and the crest factor is preserved or improved.  Such
-    files should not be rejected solely because one statistical metric moved.
-    """
+    """Return True only when LRA loss is accompanied by real dynamics risk."""
     if not np.isfinite(lra_reduction_lu) or not np.isfinite(final_lra_lu):
         return False
     if lra_reduction_lu <= float(maximum_lra_reduction_lu) + 0.05:
@@ -89,6 +91,48 @@ def lra_dynamics_risk(
         and crest_factor_loss_db > float(maximum_crest_factor_loss_db)
     )
     return bool(low_final_lra or crest_collapsed)
+
+
+def classify_delay_diagnostic(
+    diagnostic: DelayDiagnostic,
+    *,
+    exact_pass_samples: int = 1,
+    information_limit_samples: int = 8,
+    warning_limit_samples: int = 47,
+    minimum_confidence: float = 0.70,
+) -> tuple[str, str]:
+    """Classify delay without rejecting inaudible sample-level estimator drift."""
+    delay = int(diagnostic.delay_samples)
+    absolute = abs(delay)
+    milliseconds = absolute / 48.0
+    estimates = ",".join(str(value) for value in diagnostic.window_estimates_samples)
+
+    if absolute <= int(exact_pass_samples):
+        return "PASS", ""
+    if absolute <= int(information_limit_samples):
+        return (
+            "INFO",
+            f"minor delay estimate {delay} samples ({milliseconds:.3f} ms); "
+            "below correction threshold",
+        )
+    if absolute <= int(warning_limit_samples):
+        return (
+            "WARN",
+            f"sub-millisecond delay estimate {delay} samples ({milliseconds:.3f} ms); "
+            f"windows [{estimates}], no audio shift applied",
+        )
+    if not diagnostic.consistent or diagnostic.confidence < float(minimum_confidence):
+        return (
+            "UNCERTAIN",
+            f"large delay estimate is inconsistent: median {delay} samples, "
+            f"confidence {diagnostic.confidence:.2f}, windows [{estimates}]",
+        )
+    return (
+        "FAIL",
+        f"confirmed residual processing delay: {delay} samples "
+        f"({milliseconds:.3f} ms, confidence {diagnostic.confidence:.2f}, "
+        f"windows [{estimates}])",
+    )
 
 
 def _tail_metrics(
@@ -168,6 +212,12 @@ def evaluate_master(
     true_peak_tolerance_db: float = 0.05,
     maximum_clipped_samples: int = 0,
     maximum_residual_delay_samples: int = 1,
+    delay_information_limit_samples: int = 8,
+    delay_warning_limit_samples: int = 47,
+    delay_minimum_confidence: float = 0.70,
+    delay_window_count: int = 5,
+    delay_window_seconds: float = 6.0,
+    delay_consistency_tolerance_samples: int = 3,
     maximum_dc_offset: float = 0.0001,
     minimum_stereo_correlation: float = -0.05,
     minimum_low_band_stereo_correlation: float = 0.70,
@@ -206,20 +256,39 @@ def evaluate_master(
             f"(expected {int(expected_output_sample_rate_hz)} Hz)"
         )
 
+    residual_delay: int | None = None
+    delay_estimates: tuple[int, ...] = ()
+    delay_confidence = 0.0
+    delay_consistent = False
+    delay_classification = "UNAVAILABLE"
+    delay_note = ""
     try:
         source_for_delay = _resample_audio(source_audio, source_sr, processed_sr)
         if source_sr != processed_sr:
             warnings.append(
                 f"source {source_sr} Hz was resampled to {processed_sr} Hz for delay measurement"
             )
-        residual_delay = estimate_delay_samples(
+        diagnostic = estimate_delay_diagnostic(
             source_for_delay,
             processed_audio,
             processed_sr,
             max_delay_ms=max_delay_ms,
+            window_count=delay_window_count,
+            window_seconds=delay_window_seconds,
+            consistency_tolerance_samples=delay_consistency_tolerance_samples,
+        )
+        residual_delay = diagnostic.delay_samples
+        delay_estimates = diagnostic.window_estimates_samples
+        delay_confidence = diagnostic.confidence
+        delay_consistent = diagnostic.consistent
+        delay_classification, delay_note = classify_delay_diagnostic(
+            diagnostic,
+            exact_pass_samples=maximum_residual_delay_samples,
+            information_limit_samples=delay_information_limit_samples,
+            warning_limit_samples=delay_warning_limit_samples,
+            minimum_confidence=delay_minimum_confidence,
         )
     except ValueError as exc:
-        residual_delay = None
         warnings.append(f"delay measurement unavailable: {exc}")
 
     duration_delta_ms = (processed.duration_seconds - source.duration_seconds) * 1000.0
@@ -286,11 +355,10 @@ def evaluate_master(
             f"low-band stereo correlation too low: {low_band_corr:.3f} "
             f"below {low_band_cutoff_hz:.0f} Hz"
         )
-    if residual_delay is not None and abs(residual_delay) > int(maximum_residual_delay_samples):
-        issues.append(
-            f"residual processing delay: {residual_delay} samples "
-            f"(limit ±{maximum_residual_delay_samples})"
-        )
+    if delay_classification == "FAIL":
+        issues.append(delay_note)
+    elif delay_classification == "UNCERTAIN":
+        warnings.append(delay_note)
     if reject_on_duration_loss and duration_delta_ms < -1.0:
         issues.append(f"unexpected duration loss: {duration_delta_ms:.2f} ms")
     if lra_guard_triggered:
@@ -322,6 +390,13 @@ def evaluate_master(
         issues=tuple(issues),
         warnings=tuple(warnings),
         residual_delay_samples=residual_delay,
+        delay_window_estimates_samples=delay_estimates,
+        delay_confidence=float(delay_confidence),
+        delay_consistent=bool(delay_consistent),
+        delay_classification=delay_classification,
+        delay_note=delay_note,
+        delay_auto_aligned=False,
+        delay_original_samples=None,
         duration_delta_ms=float(duration_delta_ms),
         low_band_stereo_correlation=low_band_corr,
         lra_reduction_lu=lra_reduction,
