@@ -8,7 +8,7 @@ set "PYTHONUTF8=1"
 title HARU SUNO 15SET MASTERING - INSTALL
 
 echo ============================================================
-echo HARU / SUNO 15SET MASTERING v3 - BASE INSTALL
+echo HARU / SUNO 15SET MASTERING v3.1 - BASE INSTALL
 echo ============================================================
 echo.
 
@@ -52,40 +52,45 @@ echo.
 if exist ".venv\Scripts\python.exe" (
     echo Existing virtual environment found.
 ) else (
-    echo [1/6] Creating virtual environment...
+    echo [1/7] Creating virtual environment...
     %PY_CMD% -m venv ".venv"
     if errorlevel 1 goto :FAIL
 )
 
-echo [2/6] Updating pip...
+echo [2/7] Updating pip...
 ".venv\Scripts\python.exe" -m pip install --upgrade pip
 if errorlevel 1 goto :FAIL
 
-echo [3/6] Installing FFmpeg helper and audio analysis libraries...
+echo [3/7] Installing FFmpeg helper and audio analysis libraries...
 ".venv\Scripts\python.exe" -m pip install --upgrade imageio-ffmpeg numpy scipy soundfile pyloudnorm
 if errorlevel 1 goto :FAIL
 
-echo [4/6] Installing HARU Mastering v3 core from this folder...
+echo [4/7] Installing HARU Mastering v3.1 core from this folder...
 ".venv\Scripts\python.exe" -m pip install -e .
 if errorlevel 1 goto :FAIL
 
-echo [5/6] Verifying v3 feature core...
+echo [5/7] Verifying v3 feature core...
 ".venv\Scripts\python.exe" .\scripts\verify_v3_features.py
 if errorlevel 1 goto :FAIL
 
-echo [6/6] Verifying v3 runtime adapter...
+echo [6/7] Verifying v3 runtime adapter...
 ".venv\Scripts\python.exe" .\scripts\verify_v3_app.py
+if errorlevel 1 goto :FAIL
+
+echo [7/7] Verifying v3.1 auto-finish adapter...
+".venv\Scripts\python.exe" .\scripts\verify_v31_app.py
 if errorlevel 1 goto :FAIL
 
 echo.
 echo ============================================================
 echo INSTALL COMPLETE
 
-echo HARU Mastering v3 base engine is ready.
+echo HARU Mastering v3.1 AUTO FINISH engine is ready.
+echo Use RUN.bat, choose folder + genre + QUALITY+, then start.
+echo Use only WAV files inside 01_RELEASE_READY after completion.
 echo Optional AI repair tools are NOT required for normal mastering.
 echo Run INSTALL_AI_TOOLS.bat only when you want DeepFilterNet / Stem tools.
 echo ============================================================
-echo You can now run RUN.bat or START_HERE.bat.
 echo.
 pause
 exit /b 0
