@@ -18,10 +18,13 @@ def main() -> int:
         root = Path(tmp)
         sr = 48000
         rng = np.random.default_rng(20260908)
-        audio = rng.normal(0.0, 0.025, size=(sr * 2, 2))
+        mono = rng.normal(0.0, 0.025, size=sr * 2)
+        side = rng.normal(0.0, 0.003, size=sr * 2)
+        audio = np.column_stack([mono + side, mono - side])
         reference_audio = audio.copy()
-        reference_audio[:, 0] += 0.01 * np.sin(2 * np.pi * 3200 * np.arange(sr * 2) / sr)
-        reference_audio[:, 1] += 0.01 * np.sin(2 * np.pi * 3200 * np.arange(sr * 2) / sr)
+        presence = 0.01 * np.sin(2 * np.pi * 3200 * np.arange(sr * 2) / sr)
+        reference_audio[:, 0] += presence
+        reference_audio[:, 1] += presence
 
         source = root / "source.wav"
         master = root / "master.wav"
