@@ -34,7 +34,12 @@ def _refresh_final_metrics(
         actual = analyze_file(final_path)
     except Exception:
         return result
-    return replace(result, processed=actual)
+
+    post_gain = float(result.processed.lufs_i - actual.lufs_i)
+    warnings = result.warnings
+    if post_gain > 0.03:
+        warnings = warnings + (f"codec safety attenuation applied: -{post_gain:.2f} dB",)
+    return replace(result, processed=actual, warnings=warnings)
 
 
 def write_quality_reports(
