@@ -1,4 +1,4 @@
-# HARU Mastering v3.2 AUTO FINISH
+# HARU Mastering v3.3 AUTO FINISH
 
 Windows 10/11용 오프라인 중심 배치 마스터링·자동 품질검사·자동수정 프로그램입니다.
 
@@ -9,9 +9,9 @@ Windows 10/11용 오프라인 중심 배치 마스터링·자동 품질검사·�
 3. `RUN.bat` 실행 → 폴더 선택 → 장르 선택 → `품질+` → 시작.
 4. 완료 후 `01_RELEASE_READY` 폴더의 WAV만 유튜브/음원유통에 사용합니다.
 
-LUFS, LRA, dBTP, 위상, Tail을 사용자가 직접 판단할 필요가 없습니다.
+LUFS, LRA, dBTP, 위상, Tail, 코덱 피크를 사용자가 직접 판단할 필요가 없습니다.
 
-## v3.2 자동 처리 구조
+## v3.3 자동 처리 구조
 
 ```text
 원본 WAV
@@ -30,10 +30,13 @@ LUFS, LRA, dBTP, 위상, Tail을 사용자가 직접 판단할 필요가 없습�
   ├─ 실제 다이내믹 위험 → Compressor 자동 완화, 최대 2회
   ├─ 그래도 위험 → EQ/Compressor 완전 우회 투명 마스터링
   ├─ 큰 끝신호 → 약 400 ms 음악적 감쇠
-  ├─ 작은 디지털 불연속 → 5~25 ms click-safe fade
-  └─ AAC/MP3 피크 초과 → ceiling 0.20 dB씩 낮춰 재마스터
+  └─ 작은 디지털 불연속 → 5~25 ms click-safe fade
   ↓
 AAC 256 / MP3 320 round-trip 안전검사
+  ├─ 코덱 피크 초과량 실측
+  ├─ 필요한 감쇠량만 계산
+  ├─ 최종 WAV에 투명 broadband gain 적용
+  └─ 최대 3회 재검사, 총 감쇠 2 dB 제한
   ↓
 최종 분류
   ├─ 01_RELEASE_READY
@@ -42,17 +45,42 @@ AAC 256 / MP3 320 round-trip 안전검사
   └─ 04_CODEC_PREVIEW
 ```
 
-## v3.2에서 달라진 다이내믹 판정
+## v3.3 코덱 자동감쇠
+
+이전 방식은 AAC/MP3 피크가 높으면 limiter ceiling을 0.20 dB씩 낮춰 전체 마스터링을 다시 실행했습니다. 일부 곡은 WAV True Peak가 충분히 낮아도 코덱 변환에서만 피크가 크게 올라 해결되지 않았습니다.
+
+v3.3은 다음 공식으로 필요한 감쇠량을 직접 계산합니다.
+
+```text
+필요 감쇠량 = 측정 코덱 피크 - (장르 ceiling - 추가 안전여유 0.10 dB)
+```
+
+예: 코덱 피크 -1.12 dBTP, ceiling -1.50 dBTP이면 안전 목표는 -1.60 dBTP이고 약 0.48 dB만 투명하게 낮춥니다. EQ, Compressor, 편곡, 보컬 음색은 바꾸지 않습니다.
+
+안전장치:
+
+- 최대 자동감쇠 재검사 3회
+- 한 번에 최대 1.50 dB
+- 전체 최대 2.00 dB
+- 매 감쇠 후 AAC/MP3를 다시 생성해 실제 True Peak 재측정
+- 최종 WAV 수치를 다시 분석해 HTML/JSON/CSV에 기록
+
+CSV에는 다음 열이 추가됩니다.
+
+- `codec_gain_reduction_dB`
+- `codec_auto_gain_passes`
+- `processing_mode`에 `+codec_gain` 표시
+- `auto_fixes`에 실제 자동감쇠량 표시
+
+## 복합 다이내믹 판정
 
 LRA 감소량 하나만으로 정상곡을 탈락시키지 않습니다.
-
-다음 조건을 함께 봅니다.
 
 - 장르별 권장 LRA 감소량
 - 최종 LRA가 3.5 LU 이상인지
 - Crest Factor 손실이 0.75 dB 이하인지
 
-예를 들어 LRA가 권장량보다 더 줄었어도 최종 LRA가 충분하고 Crest Factor가 유지되거나 좋아졌다면 PASS로 처리합니다. 실제로 다이내믹이 무너진 곡만 압축 완화와 투명 마스터링을 적용합니다.
+최종 LRA가 충분하고 Crest Factor가 유지되거나 좋아졌다면 PASS입니다. 실제 다이내믹이 무너진 곡만 압축 완화와 투명 마스터링을 적용합니다.
 
 장르별 권장 LRA 감소량:
 
@@ -65,7 +93,7 @@ LRA 감소량 하나만으로 정상곡을 탈락시키지 않습니다.
 - CHILI EN / JP: 0.80 LU
 - SHOWA JP: 0.50 LU
 
-## v3.2 Tail 자동처리
+## Tail 자동처리
 
 프로그램은 페이드를 적용하기 전에 마지막 100 ms의 에너지를 먼저 기록합니다.
 
@@ -73,7 +101,7 @@ LRA 감소량 하나만으로 정상곡을 탈락시키지 않습니다.
 - 조용하지만 마지막 sample이 남은 곡: 25 ms click-safe fade
 - 거의 정상인데 마지막 sample만 남은 곡: 5 ms micro fade
 
-따라서 마지막 sample을 0으로 만든 뒤 원래 큰 끝신호가 숨겨지는 문제를 방지합니다. 보고서에는 `tail_before_RMS`, `tail_fix_mode`, `tail_after_RMS`가 기록됩니다.
+보고서에는 `tail_before_RMS`, `tail_fix_mode`, `tail_after_RMS`가 기록됩니다.
 
 ## 기본 안전 원칙
 
@@ -82,7 +110,7 @@ LRA 감소량 하나만으로 정상곡을 탈락시키지 않습니다.
 - 기존 5 ms / 240-sample limiter 지연은 latency compensation + 회귀 테스트로 방지합니다.
 - DeepFilterNet, noisereduce, stem 분리는 정상곡에 자동 적용하지 않습니다.
 - AI 복원은 실제 문제곡에만 선택적으로 사용합니다.
-- 자동 해결 한도 초과 시 수동 EQ 안내 대신 원본 WAV 재수출 또는 해당 곡 재생성을 권장합니다.
+- 코덱 자동감쇠는 최종 마스터 복사본에만 적용하며 원본 WAV는 유지합니다.
 
 ## 결과 폴더
 
@@ -99,27 +127,16 @@ MASTER_장르_AUTO_날짜시간
 └─ 04_CODEC_PREVIEW
 ```
 
-## 설치 / 실행
+Quality Gate에서는 `Crest 손실` 대신 `Crest 변화`를 표시합니다. 양수는 Crest 증가, 음수는 감소입니다. 코덱 안전을 위해 최종 게인을 낮춘 경우 Notes에 실제 감쇠량이 기록됩니다.
 
-기본 설치:
+## 설치 / 실행
 
 ```bat
 INSTALL.bat
-```
-
-기본 실행(v3.2):
-
-```bat
 RUN.bat
 ```
 
-선택적 AI 도구 설치:
-
-```bat
-INSTALL_AI_TOOLS.bat
-```
-
-문제가 있을 때 이전 버전으로 즉시 복귀:
+기본 `RUN.bat`은 v3.3을 실행합니다. 문제가 있을 때 이전 버전으로 복귀할 수 있습니다.
 
 ```bat
 RUN_V3.bat
@@ -127,34 +144,29 @@ RUN_V2.bat
 RUN_LEGACY.bat
 ```
 
-## 선택적 고급 기능
+선택적 AI 도구:
 
-`⑤ 고급 복원 / 품질검사` 탭에는 다음 기능이 유지됩니다.
-
-- noisereduce Noise Repair
-- DeepFilterNet
-- python-audio-separator Vocal / Instrument Stem
-- 자체 bounded Reference Assist
-- 수동 AAC/MP3 Codec Preview
-- 수동 원본 ↔ 마스터 Quality Gate
-
-이 기능들은 정상곡에 무조건 적용하지 않습니다.
+```bat
+INSTALL_AI_TOOLS.bat
+```
 
 ## 자동 테스트
 
 GitHub Actions / Windows / Python 3.12에서 다음을 자동 검사합니다.
 
 - 전체 pytest
+- 코덱 초과량 계산: -1.12 → 약 0.48 dB 자동감쇠
+- 실제 WAV gain 적용 정확도
+- 코덱 안전 판정까지 반복 재검사
 - 240-sample 지연 검출 회귀 테스트
 - 안전한 LRA 변화와 실제 다이내믹 붕괴 구분
-- 큰 끝신호의 400 ms 자동 감쇠
-- 조용한 Hard Cut의 25 ms 자동 fade
+- 큰 끝신호 400 ms 자동 감쇠
 - RELEASE_READY / NEEDS_REVIEW 분리
-- v2 core / v3 feature / v3 runtime / v3.2 runtime verification
-- v1 / v2 / v3 / v3.2 `.pyw` compile
+- v2 / v3 / v3.2 / v3.3 runtime verification
+- 모든 `.pyw` compile
 
 ## 저장소 운영
 
 - `main`: 실제 음원 검증까지 끝난 안정 버전
-- `upgrade/channel-aware-v2`: v3.2 개발/실파일 검증 브랜치
-- Draft PR #2는 실제 Suno WAV 검증이 끝날 때까지 `main`에 병합하지 않습니다.
+- `upgrade/channel-aware-v2`: v3.3 개발·실파일 검증 브랜치
+- Draft PR #2는 v3.3 실제 Suno WAV 검증 후에만 `main`에 병합합니다.
