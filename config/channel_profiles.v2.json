@@ -1,5 +1,5 @@
 {
-  "schemaVersion": "3.1.0",
+  "schemaVersion": "3.2.0",
   "description": "Analysis-driven safe defaults. Processing amounts are ceilings, not mandatory boosts or cuts.",
   "global": {
     "workingSampleRateHz": 48000,
@@ -45,10 +45,18 @@
     "autoFinish": {
       "enabled": true,
       "maximumAutoRerenders": 2,
+      "minimumFinalLraLu": 3.5,
+      "maximumCrestFactorLossDb": 0.75,
+      "transparentFallbackEnabled": true,
+      "transparentHighpassHz": 10,
       "tailWindowMs": 100,
       "tailEndRmsThresholdDbfs": -50.0,
       "tailLastSampleThresholdDbfs": -60.0,
+      "energeticTailThresholdDbfs": -35.0,
+      "energeticTailFadeMs": 400.0,
       "hardCutAutoFadeMs": 25.0,
+      "microFadeMs": 5.0,
+      "microFadeLastSampleThresholdDbfs": -80.0,
       "codecPreviewEnabled": true,
       "codecTruePeakSafetyMarginDb": 0.05,
       "codecCeilingStepDb": 0.20,
