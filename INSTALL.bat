@@ -5,10 +5,10 @@ cd /d "%~dp0"
 chcp 65001 >nul
 set "PYTHONUTF8=1"
 
-title SUNO 15SET MASTERING - INSTALL
+title HARU SUNO 15SET MASTERING - INSTALL
 
 echo ============================================================
-echo SUNO 15SET MASTERING - FIRST TIME INSTALL
+echo HARU / SUNO 15SET MASTERING v3 - BASE INSTALL
 echo ============================================================
 echo.
 
@@ -52,28 +52,38 @@ echo.
 if exist ".venv\Scripts\python.exe" (
     echo Existing virtual environment found.
 ) else (
-    echo [1/4] Creating virtual environment...
+    echo [1/6] Creating virtual environment...
     %PY_CMD% -m venv ".venv"
     if errorlevel 1 goto :FAIL
 )
 
-echo [2/4] Updating pip...
+echo [2/6] Updating pip...
 ".venv\Scripts\python.exe" -m pip install --upgrade pip
 if errorlevel 1 goto :FAIL
 
-echo [3/4] Installing FFmpeg helper and audio analysis libraries...
+echo [3/6] Installing FFmpeg helper and audio analysis libraries...
 ".venv\Scripts\python.exe" -m pip install --upgrade imageio-ffmpeg numpy scipy soundfile pyloudnorm
 if errorlevel 1 goto :FAIL
 
-echo [4/4] Installing HARU Mastering v2 core from this folder...
+echo [4/6] Installing HARU Mastering v3 core from this folder...
 ".venv\Scripts\python.exe" -m pip install -e .
+if errorlevel 1 goto :FAIL
+
+echo [5/6] Verifying v3 feature core...
+".venv\Scripts\python.exe" .\scripts\verify_v3_features.py
+if errorlevel 1 goto :FAIL
+
+echo [6/6] Verifying v3 runtime adapter...
+".venv\Scripts\python.exe" .\scripts\verify_v3_app.py
 if errorlevel 1 goto :FAIL
 
 echo.
 echo ============================================================
 echo INSTALL COMPLETE
 
-echo FFmpeg helper + HARU Mastering v2 analysis core are ready.
+echo HARU Mastering v3 base engine is ready.
+echo Optional AI repair tools are NOT required for normal mastering.
+echo Run INSTALL_AI_TOOLS.bat only when you want DeepFilterNet / Stem tools.
 echo ============================================================
 echo You can now run RUN.bat or START_HERE.bat.
 echo.
