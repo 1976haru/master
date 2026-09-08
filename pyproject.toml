@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "haru-mastering-core"
-version = "0.1.0"
-description = "Channel-aware offline audio mastering analysis and safety core"
+version = "0.3.0"
+description = "Channel-aware offline audio mastering, quality-gate and repair core"
 requires-python = ">=3.10"
 dependencies = [
   "numpy>=1.26",
@@ -15,6 +15,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+repair = [
+  "noisereduce>=3.0"
+]
 dev = [
   "pytest>=8.0",
   "ruff>=0.5"
