@@ -2,10 +2,21 @@ from __future__ import annotations
 
 import html
 import json
+import math
 from pathlib import Path
-from typing import Iterable
+from typing import Any, Iterable
 
 from .quality_gate import QualityGateResult
+
+
+def _json_safe(value: Any) -> Any:
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, dict):
+        return {key: _json_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(item) for item in value]
+    return value
 
 
 def write_quality_reports(
@@ -18,7 +29,7 @@ def write_quality_reports(
 
     json_path = output / "HARU_QUALITY_GATE.json"
     json_payload = [
-        {"track": track, **result.to_dict()}
+        _json_safe({"track": track, **result.to_dict()})
         for track, result in items
     ]
     json_path.write_text(
