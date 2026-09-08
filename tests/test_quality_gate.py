@@ -9,9 +9,8 @@ from haru_mastering.quality_gate import evaluate_master
 
 def test_quality_gate_passes_identical_audio(tmp_path):
     sr = 48000
-    t = np.arange(sr * 2, dtype=np.float64) / sr
-    tone = 0.08 * np.sin(2 * np.pi * 440 * t)
-    audio = np.column_stack([tone, tone])
+    rng = np.random.default_rng(42)
+    audio = rng.normal(0.0, 0.03, size=(sr * 2, 2))
     source = tmp_path / "source.wav"
     processed = tmp_path / "processed.wav"
     sf.write(source, audio, sr, subtype="PCM_24")
