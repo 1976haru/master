@@ -17,16 +17,18 @@ def main() -> int:
     with tempfile.TemporaryDirectory(prefix="haru_v3_verify_") as tmp:
         root = Path(tmp)
         sr = 48000
-        duration = 2.0
-        t = np.arange(int(sr * duration), dtype=np.float64) / sr
-        tone = 0.08 * np.sin(2.0 * np.pi * 440.0 * t)
-        audio = np.column_stack([tone, tone])
+        rng = np.random.default_rng(20260908)
+        audio = rng.normal(0.0, 0.025, size=(sr * 2, 2))
+        reference_audio = audio.copy()
+        reference_audio[:, 0] += 0.01 * np.sin(2 * np.pi * 3200 * np.arange(sr * 2) / sr)
+        reference_audio[:, 1] += 0.01 * np.sin(2 * np.pi * 3200 * np.arange(sr * 2) / sr)
+
         source = root / "source.wav"
         master = root / "master.wav"
         reference = root / "reference.wav"
         sf.write(source, audio, sr, subtype="PCM_24")
         sf.write(master, audio, sr, subtype="PCM_24")
-        sf.write(reference, audio * 0.9, sr, subtype="PCM_24")
+        sf.write(reference, reference_audio, sr, subtype="PCM_24")
 
         metrics = analyze_file(master)
         gate = evaluate_master(
@@ -37,6 +39,11 @@ def main() -> int:
             lufs_tolerance_lu=0.2,
         )
         plan = build_reference_plan(source, reference, max_correction_db=1.0)
+
+    if gate.status != "PASS" or gate.residual_delay_samples != 0:
+        raise RuntimeError(
+            f"Quality Gate verification failed: {gate.status}, delay={gate.residual_delay_samples}"
+        )
 
     tools = detect_optional_tools()
     print("[PASS] HARU Mastering v3 feature core is ready")
