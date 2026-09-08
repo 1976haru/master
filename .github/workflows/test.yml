@@ -43,6 +43,9 @@ jobs:
       - name: Verify v3.3 codec auto-gain runtime
         run: python scripts/verify_v33_app.py
 
+      - name: Verify v3.4 smart delay runtime
+        run: python scripts/verify_v34_app.py
+
       - name: Compile runtime adapters
         shell: pwsh
         run: |
@@ -51,3 +54,4 @@ jobs:
           python -m py_compile Suno15_Mastering_v3.pyw
           python -m py_compile Suno15_Mastering_v3_1.pyw
           python -m py_compile Suno15_Mastering_v3_3.pyw
+          python -m py_compile Suno15_Mastering_v3_4.pyw
