@@ -11,6 +11,9 @@ from .analysis import analyze_file
 from .quality_gate import QualityGateResult
 
 
+QUALITY_REPORT_VERSION = "v3.5"
+
+
 def _json_safe(value: Any) -> Any:
     if isinstance(value, float):
         return value if math.isfinite(value) else None
@@ -122,7 +125,7 @@ def write_quality_reports(
         "table{border-collapse:collapse;width:100%;font-size:12px}th,td{border:1px solid #ddd;"
         "padding:6px;text-align:left}th{background:#f3f3f3}.summary{font-size:18px;margin:12px 0 20px}"
         "</style></head><body>"
-        "<h1>HARU Mastering Quality Gate v3.4</h1>"
+        f"<h1>HARU Mastering Quality Gate {QUALITY_REPORT_VERSION}</h1>"
         f"<div class='summary'>PASS {counts.get('PASS',0)} / WARN {counts.get('WARN',0)} / FAIL {counts.get('FAIL',0)}</div>"
         "<table><thead><tr><th>Track</th><th>Status</th><th>LUFS-I</th><th>dBTP</th>"
         "<th>LRA</th><th>LRA 감소</th><th>Crest 변화</th><th>Dynamics</th>"
