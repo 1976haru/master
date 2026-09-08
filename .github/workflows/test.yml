@@ -34,6 +34,9 @@ jobs:
       - name: Verify v3 feature core
         run: python scripts/verify_v3_features.py
 
+      - name: Verify v3 runtime import
+        run: python scripts/verify_v3_app.py
+
       - name: Compile runtime adapters
         shell: pwsh
         run: |
