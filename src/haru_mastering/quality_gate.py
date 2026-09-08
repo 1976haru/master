@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from dataclasses import asdict, dataclass
 from math import gcd
 from pathlib import Path
@@ -21,6 +22,10 @@ class QualityGateResult:
     residual_delay_samples: int | None
     duration_delta_ms: float
     low_band_stereo_correlation: float
+    lra_reduction_lu: float
+    tail_end_rms_dbfs: float
+    tail_last_sample_dbfs: float
+    tail_hard_cut: bool
     source: AudioMetrics
     processed: AudioMetrics
 
@@ -47,6 +52,36 @@ def _finite_metric_values(metrics: AudioMetrics) -> bool:
         metrics.side_to_mid_db,
     ]
     return all(np.isfinite(value) or value == float("-inf") for value in values)
+
+
+def _dbfs(value: float) -> float:
+    value = abs(float(value))
+    if value <= 1e-15:
+        return float("-inf")
+    return 20.0 * math.log10(value)
+
+
+def _tail_metrics(
+    audio: np.ndarray,
+    sample_rate: int,
+    *,
+    window_ms: float,
+    end_rms_threshold_dbfs: float,
+    last_sample_threshold_dbfs: float,
+) -> tuple[float, float, bool]:
+    if audio.shape[0] == 0:
+        return float("-inf"), float("-inf"), False
+    frames = max(1, int(round(sample_rate * float(window_ms) / 1000.0)))
+    tail = audio[-frames:]
+    rms = float(np.sqrt(np.mean(np.square(tail)))) if tail.size else 0.0
+    last = float(np.max(np.abs(audio[-1])))
+    end_rms_dbfs = _dbfs(rms)
+    last_sample_dbfs = _dbfs(last)
+    hard_cut = (
+        end_rms_dbfs > float(end_rms_threshold_dbfs)
+        and last_sample_dbfs > float(last_sample_threshold_dbfs)
+    )
+    return end_rms_dbfs, last_sample_dbfs, hard_cut
 
 
 def _resample_audio(audio: np.ndarray, source_sr: int, target_sr: int) -> np.ndarray:
@@ -103,7 +138,12 @@ def evaluate_master(
     minimum_low_band_stereo_correlation: float = 0.70,
     low_band_cutoff_hz: float = 110.0,
     expected_output_sample_rate_hz: int | None = None,
+    maximum_lra_reduction_lu: float | None = None,
     reject_on_duration_loss: bool = True,
+    reject_on_tail_cut: bool = True,
+    tail_window_ms: float = 100.0,
+    tail_end_rms_threshold_dbfs: float = -50.0,
+    tail_last_sample_threshold_dbfs: float = -60.0,
     max_delay_ms: float = 100.0,
     true_peak_oversample: int = 4,
 ) -> QualityGateResult:
@@ -150,6 +190,18 @@ def evaluate_master(
         processed_sr,
         cutoff_hz=low_band_cutoff_hz,
     )
+    lra_reduction = (
+        float(source.lra_lu - processed.lra_lu)
+        if np.isfinite(source.lra_lu) and np.isfinite(processed.lra_lu)
+        else 0.0
+    )
+    tail_end_rms_dbfs, tail_last_sample_dbfs, tail_hard_cut = _tail_metrics(
+        processed_audio,
+        processed_sr,
+        window_ms=tail_window_ms,
+        end_rms_threshold_dbfs=tail_end_rms_threshold_dbfs,
+        last_sample_threshold_dbfs=tail_last_sample_threshold_dbfs,
+    )
 
     if not _finite_metric_values(processed):
         issues.append("processed metrics contain invalid numeric values")
@@ -181,11 +233,19 @@ def evaluate_master(
         )
     if reject_on_duration_loss and duration_delta_ms < -1.0:
         issues.append(f"unexpected duration loss: {duration_delta_ms:.2f} ms")
+    if maximum_lra_reduction_lu is not None and lra_reduction > float(maximum_lra_reduction_lu) + 0.05:
+        issues.append(
+            f"LRA reduction exceeded: {lra_reduction:.2f} LU "
+            f"(limit {float(maximum_lra_reduction_lu):.2f} LU)"
+        )
+    if reject_on_tail_cut and tail_hard_cut:
+        issues.append(
+            f"TAIL HARD CUT: end RMS {tail_end_rms_dbfs:.1f} dBFS / "
+            f"last sample {tail_last_sample_dbfs:.1f} dBFS"
+        )
 
-    # Large LRA collapse is not always a hard failure, but it is useful for listening review.
-    lra_change = processed.lra_lu - source.lra_lu
-    if lra_change < -1.5:
-        warnings.append(f"LRA reduced by {-lra_change:.2f} LU")
+    if lra_reduction > 1.5 and maximum_lra_reduction_lu is None:
+        warnings.append(f"LRA reduced by {lra_reduction:.2f} LU")
     if processed.trailing_silence_ms + 20.0 < source.trailing_silence_ms and duration_delta_ms <= 0:
         warnings.append("output tail is shorter than source tail; listen for reverb cutoff")
 
@@ -197,6 +257,10 @@ def evaluate_master(
         residual_delay_samples=residual_delay,
         duration_delta_ms=float(duration_delta_ms),
         low_band_stereo_correlation=low_band_corr,
+        lra_reduction_lu=lra_reduction,
+        tail_end_rms_dbfs=tail_end_rms_dbfs,
+        tail_last_sample_dbfs=tail_last_sample_dbfs,
+        tail_hard_cut=tail_hard_cut,
         source=source,
         processed=processed,
     )
