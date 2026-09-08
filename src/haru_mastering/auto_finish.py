@@ -24,6 +24,8 @@ class TailRepairResult:
     fade_ms: float
     before: TailMetrics
     after: TailMetrics
+    attempted_fades_ms: tuple[float, ...] = ()
+    target_end_rms_dbfs: float | None = None
 
 
 def _dbfs(value: float) -> float:
@@ -33,15 +35,15 @@ def _dbfs(value: float) -> float:
     return 20.0 * math.log10(value)
 
 
-def inspect_tail(
-    path: str | Path,
+def _tail_metrics_from_audio(
+    audio: np.ndarray,
+    sample_rate: int,
     *,
-    window_ms: float = 100.0,
-    end_rms_threshold_dbfs: float = -50.0,
-    last_sample_threshold_dbfs: float = -60.0,
-    energetic_end_threshold_dbfs: float | None = None,
+    window_ms: float,
+    end_rms_threshold_dbfs: float,
+    last_sample_threshold_dbfs: float,
+    energetic_end_threshold_dbfs: float | None,
 ) -> TailMetrics:
-    audio, sample_rate = sf.read(path, always_2d=True, dtype="float64")
     if audio.shape[0] == 0:
         return TailMetrics(float("-inf"), float("-inf"), False, False)
     frames = max(1, int(round(sample_rate * float(window_ms) / 1000.0)))
@@ -61,6 +63,45 @@ def inspect_tail(
     return TailMetrics(end_rms_dbfs, last_sample_dbfs, hard_cut, energetic_end)
 
 
+def inspect_tail(
+    path: str | Path,
+    *,
+    window_ms: float = 100.0,
+    end_rms_threshold_dbfs: float = -50.0,
+    last_sample_threshold_dbfs: float = -60.0,
+    energetic_end_threshold_dbfs: float | None = None,
+) -> TailMetrics:
+    audio, sample_rate = sf.read(path, always_2d=True, dtype="float64")
+    return _tail_metrics_from_audio(
+        audio,
+        sample_rate,
+        window_ms=window_ms,
+        end_rms_threshold_dbfs=end_rms_threshold_dbfs,
+        last_sample_threshold_dbfs=last_sample_threshold_dbfs,
+        energetic_end_threshold_dbfs=energetic_end_threshold_dbfs,
+    )
+
+
+def _faded_copy(audio: np.ndarray, sample_rate: int, fade_ms: float) -> np.ndarray:
+    if audio.shape[0] == 0:
+        return audio.copy()
+    fade_frames = min(
+        audio.shape[0],
+        max(2, int(round(sample_rate * float(fade_ms) / 1000.0))),
+    )
+    repaired = audio.copy()
+    ramp = np.linspace(1.0, 0.0, fade_frames, dtype=np.float64)[:, None]
+    repaired[-fade_frames:] *= ramp
+    repaired[-1] = 0.0
+    return repaired
+
+
+def _write_audio_atomic(path: Path, audio: np.ndarray, sample_rate: int, subtype: str) -> None:
+    temp = path.with_name(path.stem + ".tailfix.tmp.wav")
+    sf.write(temp, audio, sample_rate, subtype=subtype)
+    temp.replace(path)
+
+
 def apply_click_safe_fade(
     path: str | Path,
     *,
@@ -70,18 +111,36 @@ def apply_click_safe_fade(
     audio, sample_rate = sf.read(target, always_2d=True, dtype="float64")
     if audio.shape[0] == 0:
         return target
-    fade_frames = min(audio.shape[0], max(2, int(round(sample_rate * float(fade_ms) / 1000.0))))
-    ramp = np.linspace(1.0, 0.0, fade_frames, dtype=np.float64)[:, None]
-    repaired = audio.copy()
-    repaired[-fade_frames:] *= ramp
-    repaired[-1] = 0.0
-
+    repaired = _faded_copy(audio, sample_rate, fade_ms)
     info = sf.info(target)
     subtype = info.subtype if info.subtype else "PCM_24"
-    temp = target.with_name(target.stem + ".tailfix.tmp.wav")
-    sf.write(temp, repaired, sample_rate, subtype=subtype)
-    temp.replace(target)
+    _write_audio_atomic(target, repaired, sample_rate, subtype)
     return target
+
+
+def _adaptive_fade_candidates(
+    base_fade_ms: float,
+    candidates_ms: Iterable[float] | None,
+    maximum_fade_ms: float,
+) -> tuple[float, ...]:
+    base = max(5.0, float(base_fade_ms))
+    maximum = max(base, float(maximum_fade_ms))
+    values = (
+        list(candidates_ms)
+        if candidates_ms is not None
+        else [base, base * 1.5, base * 2.0, base * 3.0]
+    )
+    values.append(base)
+    normalized = sorted(
+        {
+            round(min(maximum, max(5.0, float(value))), 3)
+            for value in values
+            if np.isfinite(float(value)) and float(value) > 0.0
+        }
+    )
+    if not normalized:
+        normalized = [base]
+    return tuple(normalized)
 
 
 def repair_tail_automatically(
@@ -92,20 +151,30 @@ def repair_tail_automatically(
     last_sample_threshold_dbfs: float = -60.0,
     energetic_end_threshold_dbfs: float = -35.0,
     energetic_fade_ms: float = 400.0,
+    energetic_fade_candidates_ms: Iterable[float] | None = None,
+    energetic_target_margin_db: float = 0.5,
+    maximum_energetic_fade_ms: float = 1200.0,
     hard_cut_fade_ms: float = 25.0,
     micro_fade_ms: float = 5.0,
     micro_fade_last_sample_threshold_dbfs: float = -80.0,
 ) -> TailRepairResult:
-    """Repair the ending without asking the user to judge audio manually.
+    """Repair the ending automatically while preserving the shortest safe fade.
 
-    A loud ending receives a longer 300-500 ms musical fade.  A quiet digital
-    discontinuity receives a short click-safe fade.  Otherwise only a tiny
-    micro-fade is applied when the last sample is still measurably non-zero.
-    The pre-repair measurement is returned so reports cannot hide a hard cut
-    merely because the repaired last sample became zero.
+    Energetic endings are evaluated from the same unmodified master with a fade
+    ladder.  The first candidate that clears the gate plus a small safety margin
+    is written once.  This avoids repeated fade multiplication while allowing a
+    400 ms attempt to expand to 600, 800 or 1200 ms when the ending is stronger.
+    Quiet hard cuts still use a short click-safe fade and normal endings receive
+    only a tiny micro-fade when the final sample is non-zero.
     """
-    before = inspect_tail(
-        path,
+    target = Path(path)
+    audio, sample_rate = sf.read(target, always_2d=True, dtype="float64")
+    info = sf.info(target)
+    subtype = info.subtype if info.subtype else "PCM_24"
+
+    before = _tail_metrics_from_audio(
+        audio,
+        sample_rate,
         window_ms=window_ms,
         end_rms_threshold_dbfs=end_rms_threshold_dbfs,
         last_sample_threshold_dbfs=last_sample_threshold_dbfs,
@@ -114,27 +183,73 @@ def repair_tail_automatically(
 
     mode = "none"
     fade_ms = 0.0
+    attempted: tuple[float, ...] = ()
+    target_end_rms: float | None = None
+    repaired_audio = audio.copy()
+
     if before.energetic_end:
         mode = "musical_tail_fade"
-        fade_ms = float(energetic_fade_ms)
-        apply_click_safe_fade(path, fade_ms=fade_ms)
+        candidates = _adaptive_fade_candidates(
+            energetic_fade_ms,
+            energetic_fade_candidates_ms,
+            maximum_energetic_fade_ms,
+        )
+        target_end_rms = float(energetic_end_threshold_dbfs) - max(
+            0.0, float(energetic_target_margin_db)
+        )
+        tried: list[float] = []
+        selected_audio = None
+        selected_ms = candidates[-1]
+        for candidate_ms in candidates:
+            tried.append(candidate_ms)
+            candidate_audio = _faded_copy(audio, sample_rate, candidate_ms)
+            candidate_metrics = _tail_metrics_from_audio(
+                candidate_audio,
+                sample_rate,
+                window_ms=window_ms,
+                end_rms_threshold_dbfs=end_rms_threshold_dbfs,
+                last_sample_threshold_dbfs=last_sample_threshold_dbfs,
+                energetic_end_threshold_dbfs=energetic_end_threshold_dbfs,
+            )
+            selected_audio = candidate_audio
+            selected_ms = candidate_ms
+            if (
+                candidate_metrics.end_rms_dbfs <= target_end_rms
+                and not candidate_metrics.hard_cut
+            ):
+                break
+        attempted = tuple(tried)
+        fade_ms = float(selected_ms)
+        repaired_audio = selected_audio if selected_audio is not None else audio.copy()
     elif before.hard_cut:
         mode = "click_safe_fade"
         fade_ms = float(hard_cut_fade_ms)
-        apply_click_safe_fade(path, fade_ms=fade_ms)
+        attempted = (fade_ms,)
+        repaired_audio = _faded_copy(audio, sample_rate, fade_ms)
     elif before.last_sample_dbfs > float(micro_fade_last_sample_threshold_dbfs):
         mode = "micro_fade"
         fade_ms = float(micro_fade_ms)
-        apply_click_safe_fade(path, fade_ms=fade_ms)
+        attempted = (fade_ms,)
+        repaired_audio = _faded_copy(audio, sample_rate, fade_ms)
+
+    if mode != "none":
+        _write_audio_atomic(target, repaired_audio, sample_rate, subtype)
 
     after = inspect_tail(
-        path,
+        target,
         window_ms=window_ms,
         end_rms_threshold_dbfs=end_rms_threshold_dbfs,
         last_sample_threshold_dbfs=last_sample_threshold_dbfs,
         energetic_end_threshold_dbfs=energetic_end_threshold_dbfs,
     )
-    return TailRepairResult(mode=mode, fade_ms=fade_ms, before=before, after=after)
+    return TailRepairResult(
+        mode=mode,
+        fade_ms=fade_ms,
+        before=before,
+        after=after,
+        attempted_fades_ms=attempted,
+        target_end_rms_dbfs=target_end_rms,
+    )
 
 
 def ensure_release_tree(output_dir: str | Path) -> dict[str, Path]:
