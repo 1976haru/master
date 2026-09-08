@@ -1,0 +1,170 @@
+{
+  "schemaVersion": "2.0.0",
+  "description": "Analysis-driven safe defaults. Processing amounts are ceilings, not mandatory boosts or cuts.",
+  "global": {
+    "workingSampleRateHz": 48000,
+    "outputBitDepth": 24,
+    "neverOverwriteOriginal": true,
+    "twoPassLoudness": true,
+    "autoLatencyCompensation": true,
+    "latencyDetectionMaxMs": 100,
+    "tailPaddingMs": 500,
+    "tailTrimThresholdDbfs": -75.0,
+    "tailSafetyMs": 100,
+    "truePeakOversampleFactor": 4,
+    "bassMonoBelowHz": 110,
+    "analysisMetrics": [
+      "lufs_i",
+      "lufs_s",
+      "lra",
+      "sample_peak_dbfs",
+      "true_peak_dbtp",
+      "crest_factor_db",
+      "dc_offset",
+      "clipped_sample_count",
+      "band_energy_db",
+      "spectral_centroid_hz",
+      "stereo_correlation",
+      "side_to_mid_db",
+      "leading_silence_ms",
+      "trailing_signal_ms",
+      "processing_delay_samples"
+    ],
+    "qualityGate": {
+      "lufsToleranceLu": 0.20,
+      "truePeakToleranceDb": 0.05,
+      "maximumClippedSamples": 0,
+      "maximumResidualDelaySamples": 1,
+      "maximumDcOffset": 0.0001,
+      "minimumFullBandStereoCorrelation": -0.05,
+      "minimumLowBandStereoCorrelation": 0.70,
+      "rejectOnUnexpectedDurationLoss": true,
+      "rejectOnTailCut": true,
+      "rejectOnNaNOrInfinity": true
+    }
+  },
+  "profiles": {
+    "old_pop_lounge": {
+      "label": "OLD POP LOUNGE",
+      "targetLufsI": -14.0,
+      "comfortModeTargetLufsI": -14.5,
+      "truePeakCeilingDbtp": -1.5,
+      "maxAutomaticEqDb": 1.2,
+      "maxBroadbandGainReductionDb": 1.5,
+      "maxLraReductionLu": 0.6,
+      "maxStereoWidthChangePercent": 5,
+      "highShelfBoostCeilingDb": 0.7,
+      "presenceBoostCeilingDb": 1.0,
+      "subsonicHighpassHzRange": [20, 27],
+      "deEsserRangeHz": [5500, 9000],
+      "deEsserMaxReductionDb": 1.5,
+      "transientPreservation": "high",
+      "saturation": {
+        "enabled": true,
+        "maximumWetPercent": 6,
+        "character": "subtle warm tape-like harmonics"
+      },
+      "intent": [
+        "mature warm vocal",
+        "long-listening comfort",
+        "restrained high frequencies",
+        "natural live-room depth",
+        "no modern glossy loudness"
+      ]
+    },
+    "old_pop_lounge_french_chanson": {
+      "label": "OLD POP LOUNGE / French Chanson",
+      "inherits": "old_pop_lounge",
+      "targetLufsI": -14.0,
+      "truePeakCeilingDbtp": -1.5,
+      "maxAutomaticEqDb": 1.0,
+      "maxBroadbandGainReductionDb": 1.3,
+      "maxLraReductionLu": 0.5,
+      "maxStereoWidthChangePercent": 3,
+      "presenceBoostCeilingDb": 0.8,
+      "deEsserRangeHz": [5000, 8500],
+      "deEsserMaxReductionDb": 1.3,
+      "intent": [
+        "preserve rounded French vowels",
+        "preserve conversational rubato",
+        "keep accordion clarinet and cello natural",
+        "avoid brittle consonants and exaggerated width"
+      ]
+    },
+    "chili_lab": {
+      "label": "CHILI LAB",
+      "targetLufsI": -14.0,
+      "truePeakCeilingDbtp": -1.2,
+      "maxAutomaticEqDb": 1.5,
+      "maxBroadbandGainReductionDb": 2.0,
+      "maxLraReductionLu": 0.8,
+      "maxStereoWidthChangePercent": 8,
+      "highShelfBoostCeilingDb": 0.8,
+      "presenceBoostCeilingDb": 1.2,
+      "subsonicHighpassHzRange": [22, 30],
+      "deEsserRangeHz": [5800, 9500],
+      "deEsserMaxReductionDb": 2.0,
+      "lowBandControlHz": [45, 130],
+      "lowBandMaximumCorrectionDb": 1.5,
+      "transientPreservation": "medium-high",
+      "saturation": {
+        "enabled": true,
+        "maximumWetPercent": 5,
+        "character": "clean urban warmth"
+      },
+      "intent": [
+        "close vocal",
+        "tight controlled bass",
+        "clear short hook",
+        "low to mid energy",
+        "urban depth without aggressive brightness"
+      ]
+    },
+    "chili_lab_ja": {
+      "label": "日本語 CHILI LAB",
+      "inherits": "chili_lab",
+      "targetLufsI": -14.0,
+      "truePeakCeilingDbtp": -1.2,
+      "maxAutomaticEqDb": 1.3,
+      "presenceBoostCeilingDb": 1.0,
+      "deEsserRangeHz": [5200, 9000],
+      "deEsserMaxReductionDb": 1.7,
+      "vocalClarityBandHz": [1400, 4300],
+      "vocalClarityMaximumCorrectionDb": 1.0,
+      "intent": [
+        "preserve natural Japanese mora rhythm",
+        "keep low-mid chest voice intact",
+        "avoid idol-like glossy top end",
+        "improve diction without making sibilants sharp"
+      ]
+    },
+    "showa_seventies": {
+      "label": "昭和セブンティーズ",
+      "targetLufsI": -14.3,
+      "comfortModeTargetLufsI": -14.8,
+      "truePeakCeilingDbtp": -1.5,
+      "maxAutomaticEqDb": 1.0,
+      "maxBroadbandGainReductionDb": 1.2,
+      "maxLraReductionLu": 0.5,
+      "maxStereoWidthChangePercent": 3,
+      "highShelfBoostCeilingDb": 0.4,
+      "presenceBoostCeilingDb": 0.7,
+      "subsonicHighpassHzRange": [20, 25],
+      "deEsserRangeHz": [5000, 8200],
+      "deEsserMaxReductionDb": 1.2,
+      "transientPreservation": "high",
+      "saturation": {
+        "enabled": true,
+        "maximumWetPercent": 5,
+        "character": "very subtle analog warmth"
+      },
+      "intent": [
+        "mature Japanese low-mid vocal",
+        "1970s New Music and folk softness",
+        "restrained cymbals and high frequencies",
+        "narrow to medium natural image",
+        "no modern J-pop loudness or vocal wall"
+      ]
+    }
+  }
+}
