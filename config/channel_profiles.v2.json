@@ -1,5 +1,5 @@
 {
-  "schemaVersion": "3.3.0",
+  "schemaVersion": "3.5.0",
   "description": "Analysis-driven safe defaults. Processing amounts are ceilings, not mandatory boosts or cuts.",
   "global": {
     "workingSampleRateHz": 48000,
@@ -54,6 +54,9 @@
       "tailLastSampleThresholdDbfs": -60.0,
       "energeticTailThresholdDbfs": -35.0,
       "energeticTailFadeMs": 400.0,
+      "energeticTailFadeCandidatesMs": [400.0, 600.0, 800.0, 1200.0],
+      "energeticTailTargetMarginDb": 0.5,
+      "energeticTailMaximumFadeMs": 1200.0,
       "hardCutAutoFadeMs": 25.0,
       "microFadeMs": 5.0,
       "microFadeLastSampleThresholdDbfs": -80.0,
@@ -66,6 +69,14 @@
       "codecMaximumSingleGainReductionDb": 1.50,
       "codecMaximumTotalGainReductionDb": 2.00,
       "keepCodecPreviewAudio": false,
+      "delayInformationLimitSamples": 8,
+      "delayWarningLimitSamples": 47,
+      "delayAutomaticAlignmentMinimumSamples": 48,
+      "delayMaximumAutomaticAlignmentSamples": 4800,
+      "delayMinimumConfidence": 0.70,
+      "delayWindowCount": 5,
+      "delayWindowSeconds": 6.0,
+      "delayConsistencyToleranceSamples": 3,
       "genreLraReductionLimitLu": {
         "OLD POP": 0.60,
         "BALLAD": 0.80,
