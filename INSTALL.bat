@@ -8,7 +8,7 @@ set "PYTHONUTF8=1"
 title HARU SUNO 15SET MASTERING - INSTALL
 
 echo ============================================================
-echo HARU / SUNO 15SET MASTERING v3.5 - BASE INSTALL
+echo HARU / SUNO 15SET MASTERING v3.6 - BASE INSTALL
 echo ============================================================
 echo.
 
@@ -52,52 +52,56 @@ echo.
 if exist ".venv\Scripts\python.exe" (
     echo Existing virtual environment found.
 ) else (
-    echo [1/10] Creating virtual environment...
+    echo [1/11] Creating virtual environment...
     %PY_CMD% -m venv ".venv"
     if errorlevel 1 goto :FAIL
 )
 
-echo [2/10] Updating pip...
+echo [2/11] Updating pip...
 ".venv\Scripts\python.exe" -m pip install --upgrade pip
 if errorlevel 1 goto :FAIL
 
-echo [3/10] Installing FFmpeg helper and audio analysis libraries...
+echo [3/11] Installing FFmpeg helper and audio analysis libraries...
 ".venv\Scripts\python.exe" -m pip install --upgrade imageio-ffmpeg numpy scipy soundfile pyloudnorm
 if errorlevel 1 goto :FAIL
 
-echo [4/10] Installing HARU Mastering v3.5 core from this folder...
+echo [4/11] Installing HARU Mastering v3.6 core from this folder...
 ".venv\Scripts\python.exe" -m pip install -e .
 if errorlevel 1 goto :FAIL
 
-echo [5/10] Verifying v3 feature core...
+echo [5/11] Verifying v3 feature core...
 ".venv\Scripts\python.exe" .\scripts\verify_v3_features.py
 if errorlevel 1 goto :FAIL
 
-echo [6/10] Verifying v3 runtime adapter...
+echo [6/11] Verifying v3 runtime adapter...
 ".venv\Scripts\python.exe" .\scripts\verify_v3_app.py
 if errorlevel 1 goto :FAIL
 
-echo [7/10] Verifying v3.2 auto-finish adapter...
+echo [7/11] Verifying v3.2 auto-finish adapter...
 ".venv\Scripts\python.exe" .\scripts\verify_v31_app.py
 if errorlevel 1 goto :FAIL
 
-echo [8/10] Verifying v3.3 codec auto-gain adapter...
+echo [8/11] Verifying v3.3 codec auto-gain adapter...
 ".venv\Scripts\python.exe" .\scripts\verify_v33_app.py
 if errorlevel 1 goto :FAIL
 
-echo [9/10] Verifying v3.4 smart delay adapter...
+echo [9/11] Verifying v3.4 smart delay adapter...
 ".venv\Scripts\python.exe" .\scripts\verify_v34_app.py
 if errorlevel 1 goto :FAIL
 
-echo [10/10] Verifying v3.5 adaptive tail adapter...
+echo [10/11] Verifying v3.5 adaptive tail adapter...
 ".venv\Scripts\python.exe" .\scripts\verify_v35_app.py
+if errorlevel 1 goto :FAIL
+
+echo [11/11] Verifying v3.6 final report synchronization...
+".venv\Scripts\python.exe" .\scripts\verify_v36_app.py
 if errorlevel 1 goto :FAIL
 
 echo.
 echo ============================================================
 echo INSTALL COMPLETE
 
-echo HARU Mastering v3.5 ADAPTIVE TAIL FINISH engine is ready.
+echo HARU Mastering v3.6 FINAL REPORT SYNC engine is ready.
 echo Use RUN.bat, choose folder + genre + QUALITY+, then start.
 echo Use only WAV files inside 01_RELEASE_READY after completion.
 echo Optional AI repair tools are NOT required for normal mastering.
