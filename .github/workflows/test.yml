@@ -52,6 +52,9 @@ jobs:
       - name: Verify v3.6 final report synchronization
         run: python scripts/verify_v36_app.py
 
+      - name: Verify v3.6.1 final metrics and Tail INFO guard
+        run: python scripts/verify_v361_app.py
+
       - name: Compile runtime adapters
         shell: pwsh
         run: |
@@ -63,3 +66,4 @@ jobs:
           python -m py_compile Suno15_Mastering_v3_4.pyw
           python -m py_compile Suno15_Mastering_v3_5.pyw
           python -m py_compile Suno15_Mastering_v3_6.pyw
+          python -m py_compile Suno15_Mastering_v3_6_1.pyw
