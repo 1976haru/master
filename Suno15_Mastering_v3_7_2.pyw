@@ -65,10 +65,9 @@ def _find_master(output: Path, track: str) -> Path | None:
 def _refresh_final_metrics_csv_v372(output_dir: str | Path) -> int:
     """Always create and synchronize v3.7.2 final metric columns.
 
-    This intentionally patches the v3.6.1 parent synchronizer as well as the
-    v3.7.1 post-pass, so the columns cannot disappear because of inheritance or
-    post-processing order. It also resolves masters after release/review folder
-    organization.
+    The parent v3.6.1 synchronizer is patched to this function so the columns
+    are created during the already-proven real execution path. The function
+    also finds MASTER WAVs after RELEASE_READY / NEEDS_REVIEW organization.
     """
     output = Path(output_dir)
     csv_path = output / "mastering_report.csv"
@@ -165,11 +164,13 @@ def _refresh_completion_text_files_v372(output_dir: str | Path) -> int:
 
 
 def install_v372_sync() -> None:
-    # Patch both layers that can refresh the CSV. The v3.6.1 parent pass is
-    # proven to run in real sessions, so making it v3.7.2-aware guarantees the
-    # new columns even if a later adapter pass is skipped or reordered.
+    # Parent v3.6.1 is the synchronization pass proven to execute in the user's
+    # real run. Patch it directly, and patch the v3.7.1 pass too. This removes
+    # inheritance/post-processing order as a failure mode.
     v371.v37.v361._refresh_final_metrics_csv = _refresh_final_metrics_csv_v372
+    v371.v37.v361._refresh_completion_text_files = _refresh_completion_text_files_v372
     v371._refresh_final_metrics_csv = _refresh_final_metrics_csv_v372
+    v371._refresh_completion_text_files = _refresh_completion_text_files_v372
     report_module.QUALITY_REPORT_VERSION = REPORT_VERSION
 
 
