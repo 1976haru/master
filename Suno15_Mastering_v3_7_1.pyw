@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 import csv
 import math
+import re
 import shutil
 from importlib.machinery import SourceFileLoader
 from importlib.util import module_from_spec, spec_from_loader
@@ -70,6 +71,11 @@ _COMPLETION_SENTENCES = tuple(
     for version in ("3.2", "3.3", "3.4", "3.5", "3.6", "3.6.1", "3.7")
 )
 _COMPLETION_V371 = "모든 곡이 v3.7.1 자동검사와 자동수정을 통과했습니다."
+_VERSION_PATTERN = re.compile(r"v3\.(?:7\.1|7|6\.1|6|5|4|3|2)(?![\d.])")
+
+
+def _normalize_version_text(text: str) -> str:
+    return _VERSION_PATTERN.sub("v3.7.1", str(text))
 
 
 def _upgrade_completion_text(text: str) -> str:
@@ -185,22 +191,12 @@ class AppV371(v37.AppV37):
         previous_showinfo = v37.legacy.messagebox.showinfo
 
         def versioned_showinfo(title, message):
-            text = str(title)
-            for version in (
-                "v3.7", "v3.6.1", "v3.6", "v3.5", "v3.4", "v3.3", "v3.2"
-            ):
-                text = text.replace(version, "v3.7.1")
-            return previous_showinfo(text, message)
+            return previous_showinfo(_normalize_version_text(title), message)
 
         v37.legacy.messagebox.showinfo = versioned_showinfo
 
     def append_log(self, text):
-        value = str(text)
-        for version in (
-            "v3.7", "v3.6.1", "v3.6", "v3.5", "v3.4", "v3.3", "v3.2"
-        ):
-            value = value.replace(version, "v3.7.1")
-        return super().append_log(value)
+        return super().append_log(_normalize_version_text(text))
 
     def _worker(self, folder, files):
         install_loudness_preserving_codec_strategy()
