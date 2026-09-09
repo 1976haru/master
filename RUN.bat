@@ -15,7 +15,10 @@ if not exist ".venv\Scripts\pythonw.exe" (
     exit /b 1
 )
 
-if exist "%~dp0Suno15_Mastering_v3_6_1.pyw" (
+if exist "%~dp0Suno15_Mastering_v3_7.pyw" (
+    start "" "%~dp0.venv\Scripts\pythonw.exe" "%~dp0Suno15_Mastering_v3_7.pyw"
+) else if exist "%~dp0Suno15_Mastering_v3_6_1.pyw" (
+    echo v3.7 adapter not found. Starting v3.6.1 application.
     start "" "%~dp0.venv\Scripts\pythonw.exe" "%~dp0Suno15_Mastering_v3_6_1.pyw"
 ) else if exist "%~dp0Suno15_Mastering_v3_6.pyw" (
     echo v3.6.1 adapter not found. Starting v3.6 application.
