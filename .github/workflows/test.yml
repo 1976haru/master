@@ -1,0 +1,81 @@
+name: HARU Mastering Tests
+
+on:
+  push:
+    branches: ["upgrade/channel-aware-v2", "main"]
+  pull_request:
+    branches: ["main"]
+
+jobs:
+  test:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install core and test dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+          python -m pip install imageio-ffmpeg
+
+      - name: Unit tests
+        run: python -m pytest -q
+
+      - name: Verify v2 core
+        run: python scripts/verify_v2_install.py
+
+      - name: Verify v3 feature core
+        run: python scripts/verify_v3_features.py
+
+      - name: Verify v3 runtime import
+        run: python scripts/verify_v3_app.py
+
+      - name: Verify v3.2 auto-finish runtime
+        run: python scripts/verify_v31_app.py
+
+      - name: Verify v3.3 codec auto-gain runtime
+        run: python scripts/verify_v33_app.py
+
+      - name: Verify v3.4 smart delay runtime
+        run: python scripts/verify_v34_app.py
+
+      - name: Verify v3.5 adaptive tail runtime
+        run: python scripts/verify_v35_app.py
+
+      - name: Verify v3.6 final report synchronization
+        run: python scripts/verify_v36_app.py
+
+      - name: Verify v3.6.1 final metrics and Tail INFO guard
+        run: python scripts/verify_v361_app.py
+
+      - name: Verify v3.7 expanded genre profiles
+        run: python scripts/verify_v37_app.py
+
+      - name: Verify v3.7.1 loudness-safe codec runtime
+        run: python scripts/verify_v371_app.py
+
+      - name: Verify v3.7.2 guaranteed CSV synchronization
+        run: python scripts/verify_v372_app.py
+
+      - name: Compile runtime adapters
+        shell: pwsh
+        run: |
+          python -m py_compile Suno15_Mastering.pyw
+          python -m py_compile Suno15_Mastering_v2.pyw
+          python -m py_compile Suno15_Mastering_v3.pyw
+          python -m py_compile Suno15_Mastering_v3_1.pyw
+          python -m py_compile Suno15_Mastering_v3_3.pyw
+          python -m py_compile Suno15_Mastering_v3_4.pyw
+          python -m py_compile Suno15_Mastering_v3_5.pyw
+          python -m py_compile Suno15_Mastering_v3_6.pyw
+          python -m py_compile Suno15_Mastering_v3_6_1.pyw
+          python -m py_compile Suno15_Mastering_v3_7.pyw
+          python -m py_compile Suno15_Mastering_v3_7_1.pyw
+          python -m py_compile Suno15_Mastering_v3_7_2.pyw

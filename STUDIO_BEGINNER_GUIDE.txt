@@ -1,0 +1,20 @@
+﻿Suno Studio 초보자 연계 사용법
+
+1. Suno에서 곡을 만든 뒤 Studio로 엽니다.
+2. 정상곡은 Studio에서 WAV로 Export 합니다.
+3. 15곡을 한 폴더에 모읍니다.
+4. 이 프로그램에서:
+   폴더 선택 → 장르 선택 → 품질+ → 15곡 마스터링 시작
+5. 결과가 PASS면 그대로 사용합니다.
+6. CHECK가 뜬 곡만 Suno Studio에서 보완합니다.
+
+CHECK곡 보완 기본 순서
+- 보컬 문제: 필요할 때만 Stem Split
+- FX가 과함: Remove FX 후 EQ/Compressor/Reverb/Delay 최소 적용
+- 편곡이 비어 있음: 필요할 때만 Chorus 또는 Electric Piano 보강
+- MIDI 수정은 정말 필요한 곡만
+- 원래 멜로디/가사/감정은 최대한 보존
+- 수정 후 다시 WAV Export → 해당 곡만 다시 마스터링
+
+처음에는 모든 기능을 배우려고 하지 마세요.
+핵심은 '15곡 자동 처리 + CHECK곡만 Studio 보완'입니다.

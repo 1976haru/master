@@ -1,0 +1,55 @@
+@echo off
+setlocal EnableExtensions
+cd /d "%~dp0"
+
+if not exist ".venv\Scripts\pythonw.exe" (
+    echo First-time setup is required.
+    call "%~dp0INSTALL.bat"
+)
+
+if not exist ".venv\Scripts\pythonw.exe" (
+    echo.
+    echo Setup is not complete.
+    echo Run START_HERE.bat again after Python installation is complete.
+    pause
+    exit /b 1
+)
+
+if exist "%~dp0Suno15_Mastering_v3_7_2.pyw" (
+    start "" "%~dp0.venv\Scripts\pythonw.exe" "%~dp0Suno15_Mastering_v3_7_2.pyw"
+) else if exist "%~dp0Suno15_Mastering_v3_7_1.pyw" (
+    echo v3.7.2 adapter not found. Starting v3.7.1 application.
+    start "" "%~dp0.venv\Scripts\pythonw.exe" "%~dp0Suno15_Mastering_v3_7_1.pyw"
+) else if exist "%~dp0Suno15_Mastering_v3_7.pyw" (
+    echo v3.7.1 adapter not found. Starting v3.7 application.
+    start "" "%~dp0.venv\Scripts\pythonw.exe" "%~dp0Suno15_Mastering_v3_7.pyw"
+) else if exist "%~dp0Suno15_Mastering_v3_6_1.pyw" (
+    echo v3.7 adapter not found. Starting v3.6.1 application.
+    start "" "%~dp0.venv\Scripts\pythonw.exe" "%~dp0Suno15_Mastering_v3_6_1.pyw"
+) else if exist "%~dp0Suno15_Mastering_v3_6.pyw" (
+    echo v3.6.1 adapter not found. Starting v3.6 application.
+    start "" "%~dp0.venv\Scripts\pythonw.exe" "%~dp0Suno15_Mastering_v3_6.pyw"
+) else if exist "%~dp0Suno15_Mastering_v3_5.pyw" (
+    echo v3.6 adapter not found. Starting v3.5 application.
+    start "" "%~dp0.venv\Scripts\pythonw.exe" "%~dp0Suno15_Mastering_v3_5.pyw"
+) else if exist "%~dp0Suno15_Mastering_v3_4.pyw" (
+    echo v3.5 adapter not found. Starting v3.4 application.
+    start "" "%~dp0.venv\Scripts\pythonw.exe" "%~dp0Suno15_Mastering_v3_4.pyw"
+) else if exist "%~dp0Suno15_Mastering_v3_3.pyw" (
+    echo v3.4 adapter not found. Starting v3.3 application.
+    start "" "%~dp0.venv\Scripts\pythonw.exe" "%~dp0Suno15_Mastering_v3_3.pyw"
+) else if exist "%~dp0Suno15_Mastering_v3_1.pyw" (
+    echo v3.3 adapter not found. Starting v3.2 application.
+    start "" "%~dp0.venv\Scripts\pythonw.exe" "%~dp0Suno15_Mastering_v3_1.pyw"
+) else if exist "%~dp0Suno15_Mastering_v3.pyw" (
+    echo v3.2 adapter not found. Starting v3 application.
+    start "" "%~dp0.venv\Scripts\pythonw.exe" "%~dp0Suno15_Mastering_v3.pyw"
+) else if exist "%~dp0Suno15_Mastering_v2.pyw" (
+    echo v3 adapter not found. Starting v2 application.
+    start "" "%~dp0.venv\Scripts\pythonw.exe" "%~dp0Suno15_Mastering_v2.pyw"
+) else (
+    echo v2/v3 adapter not found. Starting legacy application.
+    start "" "%~dp0.venv\Scripts\pythonw.exe" "%~dp0Suno15_Mastering.pyw"
+)
+
+exit /b 0

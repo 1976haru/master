@@ -1,0 +1,67 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Build / packaging
+build/
+dist/
+*.egg-info/
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Secrets / local configuration
+.env
+.env.*
+!.env.example
+secrets/
+local_settings.json
+
+# Runtime data
+logs/
+cache/
+temp/
+tmp/
+input/
+inputs/
+output/
+outputs/
+exports/
+reports/generated/
+
+# Audio and large model files
+*.wav
+*.wave
+*.mp3
+*.flac
+*.aiff
+*.aif
+*.m4a
+*.ogg
+*.aac
+*.wma
+*.onnx
+*.pt
+*.pth
+*.ckpt
+*.bin
+*.safetensors
+
+# Allow tiny committed fixtures when deliberately added
+!tests/fixtures/*.wav
+!tests/fixtures/*.flac
