@@ -58,6 +58,9 @@ jobs:
       - name: Verify v3.7 expanded genre profiles
         run: python scripts/verify_v37_app.py
 
+      - name: Verify v3.7.1 loudness-safe codec runtime
+        run: python scripts/verify_v371_app.py
+
       - name: Compile runtime adapters
         shell: pwsh
         run: |
@@ -71,3 +74,4 @@ jobs:
           python -m py_compile Suno15_Mastering_v3_6.pyw
           python -m py_compile Suno15_Mastering_v3_6_1.pyw
           python -m py_compile Suno15_Mastering_v3_7.pyw
+          python -m py_compile Suno15_Mastering_v3_7_1.pyw
