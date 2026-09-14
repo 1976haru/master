@@ -558,5 +558,38 @@ class App(tk.Tk):
             self.after(0, lambda: self.notebook.select(self.check_tab))
         self.after(0, lambda: messagebox.showinfo("마스터링 완료", summary))
 
+def _launch_latest_from_legacy():
+    import sys
+
+    root = Path(__file__).resolve().parent
+    candidates = [
+        root / "Suno15_Mastering_v3_8.pyw",
+        root / "Suno15_Mastering_v3_7_2.pyw",
+        root / "Suno15_Mastering_v3_7_1.pyw",
+        root / "Suno15_Mastering_v3_7.pyw",
+        root / "Suno15_Mastering_v3_6_1.pyw",
+        root / "Suno15_Mastering_v3_6.pyw",
+        root / "Suno15_Mastering_v3_5.pyw",
+        root / "Suno15_Mastering_v3_4.pyw",
+        root / "Suno15_Mastering_v3_3.pyw",
+        root / "Suno15_Mastering_v3_1.pyw",
+        root / "Suno15_Mastering_v3.pyw",
+        root / "Suno15_Mastering_v2.pyw",
+    ]
+    target = next((path for path in candidates if path.exists()), None)
+    if target is None:
+        messagebox.showerror("HARU Mastering", "최신 실행 파일을 찾을 수 없습니다. INSTALL.bat을 다시 실행하세요.")
+        return
+    messagebox.showinfo(
+        "HARU Mastering",
+        "이 파일은 구형 호환 모듈입니다.\n최신 HARU Mastering을 실행합니다.",
+    )
+    subprocess.Popen(
+        [sys.executable, str(target)],
+        cwd=str(root),
+        creationflags=(subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0),
+    )
+
+
 if __name__ == "__main__":
-    App().mainloop()
+    _launch_latest_from_legacy()

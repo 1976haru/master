@@ -5,10 +5,10 @@ cd /d "%~dp0"
 chcp 65001 >nul
 set "PYTHONUTF8=1"
 
-title HARU SUNO 15SET MASTERING - INSTALL
+title HARU SUNO 15SET MASTERING v3.8 - INSTALL
 
 echo ============================================================
-echo HARU / SUNO 15SET MASTERING v3.7.2 - GUARANTEED CSV SYNC INSTALL
+echo HARU / SUNO 15SET MASTERING v3.8 - FULLNESS ENGINE INSTALL
 echo ============================================================
 echo.
 
@@ -59,64 +59,79 @@ echo [3/15] Installing FFmpeg helper and audio analysis libraries...
 ".venv\Scripts\python.exe" -m pip install --upgrade imageio-ffmpeg numpy scipy soundfile pyloudnorm
 if errorlevel 1 goto :FAIL
 
-echo [4/15] Installing HARU Mastering v3.7.2 core from this folder...
+echo [4/17] Installing HARU Mastering v3.8 core from this folder...
 ".venv\Scripts\python.exe" -m pip install -e .
 if errorlevel 1 goto :FAIL
 
-echo [5/15] Verifying v3 feature core...
+echo [5/17] Verifying v3 feature core...
 ".venv\Scripts\python.exe" .\scripts\verify_v3_features.py
 if errorlevel 1 goto :FAIL
 
-echo [6/15] Verifying v3 runtime adapter...
+echo [6/17] Verifying v3 runtime adapter...
 ".venv\Scripts\python.exe" .\scripts\verify_v3_app.py
 if errorlevel 1 goto :FAIL
 
-echo [7/15] Verifying v3.2 auto-finish adapter...
+echo [7/17] Verifying v3.2 auto-finish adapter...
 ".venv\Scripts\python.exe" .\scripts\verify_v31_app.py
 if errorlevel 1 goto :FAIL
 
-echo [8/15] Verifying v3.3 codec auto-gain adapter...
+echo [8/17] Verifying v3.3 codec auto-gain adapter...
 ".venv\Scripts\python.exe" .\scripts\verify_v33_app.py
 if errorlevel 1 goto :FAIL
 
-echo [9/15] Verifying v3.4 smart delay adapter...
+echo [9/17] Verifying v3.4 smart delay adapter...
 ".venv\Scripts\python.exe" .\scripts\verify_v34_app.py
 if errorlevel 1 goto :FAIL
 
-echo [10/15] Verifying v3.5 adaptive tail adapter...
+echo [10/17] Verifying v3.5 adaptive tail adapter...
 ".venv\Scripts\python.exe" .\scripts\verify_v35_app.py
 if errorlevel 1 goto :FAIL
 
-echo [11/15] Verifying v3.6 final report synchronization...
+echo [11/17] Verifying v3.6 final report synchronization...
 ".venv\Scripts\python.exe" .\scripts\verify_v36_app.py
 if errorlevel 1 goto :FAIL
 
-echo [12/15] Verifying v3.6.1 final metrics and Tail INFO guard...
+echo [12/17] Verifying v3.6.1 final metrics and Tail INFO guard...
 ".venv\Scripts\python.exe" .\scripts\verify_v361_app.py
 if errorlevel 1 goto :FAIL
 
-echo [13/15] Verifying v3.7 expanded genre profiles...
+echo [13/17] Verifying v3.7 expanded genre profiles...
 ".venv\Scripts\python.exe" .\scripts\verify_v37_app.py
 if errorlevel 1 goto :FAIL
 
-echo [14/15] Verifying v3.7.1 loudness-safe codec strategy...
+echo [14/17] Verifying v3.7.1 loudness-safe codec strategy...
 ".venv\Scripts\python.exe" .\scripts\verify_v371_app.py
 if errorlevel 1 goto :FAIL
 
-echo [15/15] Verifying v3.7.2 guaranteed CSV synchronization...
+echo [15/17] Verifying v3.7.2 guaranteed CSV synchronization...
 ".venv\Scripts\python.exe" .\scripts\verify_v372_app.py
+if errorlevel 1 goto :FAIL
+
+echo [16/17] Verifying v3.8 Fullness Engine...
+".venv\Scripts\python.exe" .\scripts\verify_v38_app.py
+if errorlevel 1 goto :FAIL
+
+echo [17/17] Verifying v3.8 launch paths...
+".venv\Scripts\python.exe" .\scripts\verify_v38_launch_paths.py
 if errorlevel 1 goto :FAIL
 
 echo.
 echo ============================================================
 echo INSTALL COMPLETE
 
-echo HARU Mastering v3.7.2 GUARANTEED CSV SYNC engine is ready.
+echo HARU Mastering v3.8 설치 확인 완료
+echo 실행파일 확인:
+echo Suno15_Mastering_v3_8.pyw
+echo RUN.bat 연결 확인:
+echo OK
+echo legacy 직접실행 보호:
+echo OK
+echo Fullness Engine adds warmth, harmonic density and body without raising target LUFS.
 echo Codec safety uses lower-ceiling rerenders to preserve loudness.
 echo Final LUFS, dBTP and LRA are synchronized from the actual MASTER WAV.
-echo v3.7.2 CSV columns are guaranteed in both root and 03_REPORT copies.
+echo v3.8 CSV columns are guaranteed in both root and 03_REPORT copies.
 echo OLD POP, Korean/Japanese Senior, Showa, Enka, K-POP, Kids Pop and more are available.
-echo Use RUN.bat or START_HERE.bat. Do not open Suno15_Mastering.pyw directly.
+echo Use RUN.bat or START_HERE.bat. Direct legacy execution redirects to v3.8.
 echo Use only WAV files inside 01_RELEASE_READY after completion.
 echo ============================================================
 echo.

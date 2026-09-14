@@ -33,6 +33,7 @@ secrets/
 local_settings.json
 
 # Runtime data
+._local_pre_v3_8_backup/
 logs/
 cache/
 temp/

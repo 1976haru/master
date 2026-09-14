@@ -1,11 +1,15 @@
-"""HARU Mastering v2 safety and analysis core."""
+"""HARU Mastering safety and analysis core."""
 
 from .analysis import AudioMetrics, analyze_array, analyze_file
 from .alignment import compensate_delay, estimate_delay_samples, pad_tail, trim_padded_tail
 from .profiles import load_profiles, resolve_profile
+from .version import APP_TITLE, REPORT_VERSION, VERSION
 
 __all__ = [
     "AudioMetrics",
+    "APP_TITLE",
+    "REPORT_VERSION",
+    "VERSION",
     "analyze_array",
     "analyze_file",
     "compensate_delay",

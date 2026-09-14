@@ -79,6 +79,7 @@ def write_quality_reports(
     json_payload = []
     for track, result in items:
         payload = {"track": track, **result.to_dict()}
+        payload["report_version"] = QUALITY_REPORT_VERSION
         payload["crest_factor_change_db"] = -float(result.crest_factor_loss_db)
         json_payload.append(_json_safe(payload))
     json_path.write_text(
