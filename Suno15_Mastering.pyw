@@ -8,6 +8,7 @@ from pathlib import Path
 from datetime import datetime
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
+from haru_mastering.filenames import final_output_name
 
 APP_NAME = "SUNO 15-SET MASTERING FINAL v1.1 - Studio Easy Guide"
 AUDIO_EXTS = {".wav", ".mp3", ".flac", ".m4a", ".aac", ".ogg"}
@@ -505,7 +506,7 @@ class App(tk.Tk):
             raw, _ = analyze_raw(self.ffmpeg, src)
             raw_lra = safe_float(raw.get("input_lra")) if raw else None
             factor = adaptive_factor(raw_lra) if mode == "QUALITY+" else 1.0
-            dst = out_dir / f"{src.stem}_MASTER.wav"
+            dst = out_dir / final_output_name(src)
 
             if mode == "QUALITY+":
                 first, first_err = first_pass(self.ffmpeg, src, genre, factor)
@@ -563,6 +564,7 @@ def _launch_latest_from_legacy():
 
     root = Path(__file__).resolve().parent
     candidates = [
+        root / "Suno15_Mastering_v3_8_1.pyw",
         root / "Suno15_Mastering_v3_8.pyw",
         root / "Suno15_Mastering_v3_7_2.pyw",
         root / "Suno15_Mastering_v3_7_1.pyw",

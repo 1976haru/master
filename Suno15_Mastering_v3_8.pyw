@@ -131,7 +131,7 @@ def _copy_report_csv(output: Path, csv_path: Path) -> None:
     shutil.copy2(csv_path, report_copy)
 
 
-_VERSION_PATTERN = re.compile(r"v3\.(?:8|7\.2|7\.1|7|6\.1|6|5|4|3|2)(?![\d.])")
+_VERSION_PATTERN = re.compile(r"v3\.(?:8\.1|8|7\.2|7\.1|7|6\.1|6|5|4|3|2)(?![\d.])")
 
 
 def _refresh_completion_text_files_v38(output_dir: str | Path) -> int:
@@ -214,8 +214,8 @@ class AppV38(v372.AppV372):
 
     def append_log(self, text):
         value = str(text)
-        for old in ("v3.7.2", "v3.7.1", "v3.7", "v3.6.1", "v3.6", "v3.5", "v3.4", "v3.3", "v3.2"):
-            value = value.replace(old, f"v{VERSION}")
+        for old in ("v3.8", "v3.7.2", "v3.7.1", "v3.7", "v3.6.1", "v3.6", "v3.5", "v3.4", "v3.3", "v3.2"):
+            value = re.sub(rf"{re.escape(old)}(?![\d.])", f"v{VERSION}", value)
         return super().append_log(value)
 
     def _select_genre(self, key: str) -> None:

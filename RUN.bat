@@ -15,8 +15,11 @@ if not exist ".venv\Scripts\pythonw.exe" (
     exit /b 1
 )
 
-if exist "%~dp0Suno15_Mastering_v3_8.pyw" (
-    echo Starting HARU Mastering v3.8 FULLNESS ENGINE...
+if exist "%~dp0Suno15_Mastering_v3_8_1.pyw" (
+    echo Starting HARU Mastering v3.8.1...
+    start "" "%~dp0.venv\Scripts\pythonw.exe" "%~dp0Suno15_Mastering_v3_8_1.pyw"
+) else if exist "%~dp0Suno15_Mastering_v3_8.pyw" (
+    echo v3.8.1 adapter not found. Starting v3.8 application.
     start "" "%~dp0.venv\Scripts\pythonw.exe" "%~dp0Suno15_Mastering_v3_8.pyw"
 ) else if exist "%~dp0Suno15_Mastering_v3_7_2.pyw" (
     echo v3.8 adapter not found. Starting v3.7.2 application.

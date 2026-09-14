@@ -26,6 +26,7 @@ def _load_v35():
 v35 = _load_v35()
 
 from haru_mastering.auto_finish import inspect_tail
+from haru_mastering.filenames import find_final_output
 
 
 APP_NAME = "HARU / SUNO 15-SET MASTERING v3.6 - FINAL REPORT SYNC"
@@ -99,8 +100,8 @@ def _refresh_final_tail_csv(output_dir: str | Path) -> int:
         track = (row.get("track") or "").strip()
         if not track:
             continue
-        master_path = output / f"{Path(track).stem}_MASTER.wav"
-        if not master_path.exists():
+        master_path = find_final_output(output, track)
+        if master_path is None:
             continue
 
         metrics = inspect_tail(

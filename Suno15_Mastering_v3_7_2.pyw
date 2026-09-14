@@ -26,6 +26,7 @@ def _load_v371():
 v371 = _load_v371()
 
 from haru_mastering.analysis import analyze_file
+from haru_mastering.filenames import final_output_candidates, find_final_output
 import haru_mastering.report as report_module
 
 
@@ -49,17 +50,11 @@ def _safe_float(value, default=None):
 
 
 def _master_candidates(output: Path, track: str):
-    name = f"{Path(track).stem}_MASTER.wav"
-    yield output / name
-    yield output / "01_RELEASE_READY" / name
-    yield output / "02_NEEDS_REVIEW" / name
+    yield from final_output_candidates(output, track)
 
 
 def _find_master(output: Path, track: str) -> Path | None:
-    for candidate in _master_candidates(output, track):
-        if candidate.exists():
-            return candidate
-    return None
+    return find_final_output(output, track)
 
 
 def _refresh_final_metrics_csv_v372(output_dir: str | Path) -> int:

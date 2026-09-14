@@ -1,14 +1,14 @@
-# HARU Mastering v3.8 FULLNESS ENGINE
+# HARU Mastering v3.8.1
 
-`HARU Mastering v3.8 - FULLNESS ENGINE` is the v3.8 development version. It keeps the v3.7.2 multi-genre UI, codec ceiling rerender, final LUFS/LRA/CSV sync, and Quality Gate, then adds analysis-driven warmth and density without raising the target LUFS.
+`HARU Mastering v3.8.1` keeps the v3.8 Fullness Engine and changes only the final user-facing WAV filename policy: release and review WAVs keep the original title and no longer add `_MASTER`.
 
 Executable:
 
-`Suno15_Mastering_v3_8.pyw`
+`Suno15_Mastering_v3_8_1.pyw`
 
 Window title:
 
-`HARU / SUNO 15-SET MASTERING v3.8 - FULLNESS ENGINE`
+`HARU / SUNO 15-SET MASTERING v3.8.1`
 
 ## Run
 
@@ -16,8 +16,9 @@ Use `RUN.bat` or `START_HERE.bat`.
 
 `RUN.bat` starts files in this order:
 
-1. `Suno15_Mastering_v3_8.pyw`
-2. `Suno15_Mastering_v3_7_2.pyw`
+1. `Suno15_Mastering_v3_8_1.pyw`
+2. `Suno15_Mastering_v3_8.pyw`
+3. `Suno15_Mastering_v3_7_2.pyw`
 3. Earlier v3 adapters
 4. v2
 5. legacy compatibility module
@@ -25,6 +26,26 @@ Use `RUN.bat` or `START_HERE.bat`.
 `Suno15_Mastering.pyw` remains as the legacy import compatibility module. If it is double-clicked directly, it shows a notice and redirects to the latest HARU Mastering instead of opening the v1.1 UI.
 
 The old package folder is archived at `archive/legacy_v1_2`. Its `RUN.bat` and `START_HERE.bat` also forward to the root `RUN.bat`.
+
+## Final WAV Names
+
+Input:
+
+`01. Blue Passbook.wav`
+
+Final:
+
+`01. Blue Passbook.wav`
+
+Input:
+
+`01. Honey on the Knife (꿀 묻은 버터나이프).wav`
+
+Final:
+
+`01. Honey on the Knife (꿀 묻은 버터나이프).wav`
+
+Final WAVs in `01_RELEASE_READY` and `02_NEEDS_REVIEW` must not contain `_MASTER`, `_master`, `_MATER`, or `_MASTERED`.
 
 ## Fullness Engine
 
@@ -59,7 +80,7 @@ Default `자연스러움`: JAZZ, ACOUSTIC, INSTRUMENTAL.
 
 ## CSV Columns
 
-`mastering_report.csv` and `03_REPORT/mastering_report.csv` include:
+`mastering_report.csv` and `03_REPORT/mastering_report.csv` keep user-friendly track names such as `01. Blue Passbook.wav` and include:
 
 - `app_version`
 - `fullness_mode`
@@ -99,7 +120,7 @@ pytest
 Launcher and v3.8 checks:
 
 ```powershell
-.\.venv\Scripts\python.exe .\scripts\verify_v38_app.py
+.\.venv\Scripts\python.exe .\scripts\verify_v381_app.py
 .\.venv\Scripts\python.exe .\scripts\verify_v38_launch_paths.py
 ```
 

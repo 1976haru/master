@@ -28,6 +28,7 @@ from haru_mastering.codec_auto_gain import (
     CodecAutoGainResult,
     ensure_codec_safety_with_auto_gain,
 )
+from haru_mastering.filenames import find_final_output
 
 
 APP_NAME = "HARU / SUNO 15-SET MASTERING v3.3 - CODEC AUTO GAIN"
@@ -128,7 +129,9 @@ class AppV33(v32.AppV31):
         fixed_count = 0
         for row in rows:
             track = row.get("track", "")
-            master_path = output_dir / f"{Path(track).stem}_MASTER.wav"
+            master_path = find_final_output(output_dir, track)
+            if master_path is None:
+                continue
             outcome = _CODEC_RESULTS.get(str(master_path.resolve()))
             reduction = outcome.total_gain_reduction_db if outcome is not None else 0.0
             passes = outcome.passes if outcome is not None else 0

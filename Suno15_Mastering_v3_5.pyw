@@ -25,6 +25,7 @@ def _load_v34():
 v34 = _load_v34()
 
 from haru_mastering.auto_finish import TailRepairResult, repair_tail_automatically
+from haru_mastering.filenames import find_final_output
 
 
 APP_NAME = "HARU / SUNO 15-SET MASTERING v3.5 - ADAPTIVE TAIL FINISH"
@@ -128,7 +129,9 @@ class AppV35(v34.AppV34):
         adaptive_count = 0
         for row in rows:
             track = row.get("track", "")
-            master_path = output_dir / f"{Path(track).stem}_MASTER.wav"
+            master_path = find_final_output(output_dir, track)
+            if master_path is None:
+                continue
             repair = _TAIL_RESULTS.get(str(master_path.resolve()))
             if repair is None:
                 continue

@@ -27,6 +27,7 @@ v33 = _load_v33()
 
 from haru_mastering.alignment import align_audio_file
 from haru_mastering.auto_finish import repair_tail_automatically
+from haru_mastering.filenames import find_final_output
 from haru_mastering.quality_gate import evaluate_master as _CORE_EVALUATE
 
 
@@ -188,7 +189,9 @@ class AppV34(v33.AppV33):
         fixed_count = 0
         for row in rows:
             track = row.get("track", "")
-            master_path = output_dir / f"{Path(track).stem}_MASTER.wav"
+            master_path = find_final_output(output_dir, track)
+            if master_path is None:
+                continue
             key = str(master_path.resolve())
             result = _DELAY_RESULTS.get(key)
             if result is None:

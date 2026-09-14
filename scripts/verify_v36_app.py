@@ -40,7 +40,7 @@ def main() -> int:
         audio[-fade_frames:] *= np.linspace(1.0, 0.0, fade_frames)[:, None]
         audio[-1] = 0.0
 
-        master = output / "01. Sync Test_MASTER.wav"
+        master = output / "01. Sync Test.wav"
         sf.write(master, audio, sr, subtype="PCM_24")
 
         csv_path = output / "mastering_report.csv"

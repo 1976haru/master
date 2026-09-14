@@ -39,6 +39,7 @@ legacy = v2.legacy
 
 from haru_mastering.analysis import analyze_file
 from haru_mastering.codec_preview import create_codec_previews
+from haru_mastering.filenames import find_final_output
 from haru_mastering.profiles import load_profiles
 from haru_mastering.quality_gate import evaluate_master
 from haru_mastering.reference import build_reference_plan, ffmpeg_equalizer_chain
@@ -107,8 +108,8 @@ class AppV3(legacy.App):
         kwargs = _gate_kwargs(genre)
         results = []
         for src in files:
-            dst = Path(self.last_output_dir) / f"{src.stem}_MASTER.wav"
-            if not dst.exists():
+            dst = find_final_output(self.last_output_dir, src)
+            if dst is None:
                 continue
             result = evaluate_master(src, dst, **kwargs)
             results.append((src.name, result))

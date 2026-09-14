@@ -64,6 +64,15 @@ jobs:
       - name: Verify v3.7.2 guaranteed CSV synchronization
         run: python scripts/verify_v372_app.py
 
+      - name: Verify v3.8 Fullness Engine
+        run: python scripts/verify_v38_app.py
+
+      - name: Verify v3.8.1 filename cleanup
+        run: python scripts/verify_v381_app.py
+
+      - name: Verify v3.8.1 launch paths
+        run: python scripts/verify_v38_launch_paths.py
+
       - name: Compile runtime adapters
         shell: pwsh
         run: |
@@ -79,3 +88,5 @@ jobs:
           python -m py_compile Suno15_Mastering_v3_7.pyw
           python -m py_compile Suno15_Mastering_v3_7_1.pyw
           python -m py_compile Suno15_Mastering_v3_7_2.pyw
+          python -m py_compile Suno15_Mastering_v3_8.pyw
+          python -m py_compile Suno15_Mastering_v3_8_1.pyw

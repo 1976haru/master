@@ -9,6 +9,7 @@ from typing import Any, Iterable
 
 from .analysis import analyze_file
 from .auto_finish import inspect_tail
+from .filenames import find_final_output
 from .quality_gate import QualityGateResult
 
 
@@ -31,8 +32,8 @@ def _refresh_final_metrics(
     result: QualityGateResult,
 ) -> QualityGateResult:
     """Use the actual final WAV after Tail, codec and alignment post-processing."""
-    final_path = output_dir / f"{Path(track).stem}_MASTER.wav"
-    if not final_path.exists():
+    final_path = find_final_output(output_dir, track)
+    if final_path is None:
         return result
     try:
         actual = analyze_file(final_path)

@@ -50,8 +50,8 @@ def main() -> int:
         out = Path(tmp)
         release_track = "01. Release Test.wav"
         review_track = "02. Review Test.wav"
-        _write_test_wav(out / "01_RELEASE_READY" / "01. Release Test_MASTER.wav", amplitude=0.15)
-        _write_test_wav(out / "02_NEEDS_REVIEW" / "02. Review Test_MASTER.wav", amplitude=0.10)
+        _write_test_wav(out / "01_RELEASE_READY" / "01. Release Test.wav", amplitude=0.15)
+        _write_test_wav(out / "02_NEEDS_REVIEW" / "02. Review Test.wav", amplitude=0.10)
 
         csv_path = out / "mastering_report.csv"
         with csv_path.open("w", newline="", encoding="utf-8-sig") as handle:

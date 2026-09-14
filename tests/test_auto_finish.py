@@ -122,8 +122,8 @@ def test_quiet_hard_cut_uses_short_click_fade(tmp_path):
 
 
 def test_release_tree_separates_pass_and_review(tmp_path):
-    good = tmp_path / "good_MASTER.wav"
-    bad = tmp_path / "bad_MASTER.wav"
+    good = tmp_path / "good.wav"
+    bad = tmp_path / "bad.wav"
     good.write_bytes(b"good")
     bad.write_bytes(b"bad")
 

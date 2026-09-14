@@ -17,8 +17,9 @@ def test_report_refreshes_tail_from_actual_final_wav(tmp_path):
     source_audio[-fade_frames:] *= np.linspace(1.0, 0.0, fade_frames)[:, None]
     source_audio[-1] = 0.0
 
-    source_path = tmp_path / "sync_source.wav"
-    final_path = tmp_path / "sync_source_MASTER.wav"
+    source_path = tmp_path / "input" / "sync_source.wav"
+    final_path = tmp_path / "sync_source.wav"
+    source_path.parent.mkdir(parents=True, exist_ok=True)
     sf.write(source_path, source_audio, sr, subtype="PCM_24")
     sf.write(final_path, source_audio * 0.5, sr, subtype="PCM_24")
 

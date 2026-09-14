@@ -61,7 +61,7 @@ def main() -> int:
     with tempfile.TemporaryDirectory() as temp_dir:
         output = Path(temp_dir)
         track = "01. verify.wav"
-        master = output / "01. verify_MASTER.wav"
+        master = output / "01. verify.wav"
         _write_test_wav(master)
         metrics = app.analyze_file(master)
 

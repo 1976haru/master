@@ -38,6 +38,7 @@ from haru_mastering.auto_finish import (
     write_beginner_summary,
 )
 from haru_mastering.codec_preview import check_codec_safety
+from haru_mastering.filenames import final_output_name
 from haru_mastering.quality_gate import evaluate_master
 from haru_mastering.report import write_quality_reports
 
@@ -247,7 +248,7 @@ class AppV31(v3.AppV3):
                 raw_lra = legacy.safe_float(raw.get("input_lra")) if raw else None
                 factor = legacy.adaptive_factor(raw_lra) if mode == "QUALITY+" else 1.0
                 current_tp = original_genre_tp
-                dst = out_dir / f"{src.stem}_MASTER.wav"
+                dst = out_dir / final_output_name(src)
                 fixes: list[str] = []
                 codec_result = None
                 codec_error = ""
