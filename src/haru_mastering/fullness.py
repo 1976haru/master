@@ -65,6 +65,14 @@ class FullnessRender:
         }
 
 
+@dataclass(frozen=True)
+class PeakTrimRender:
+    trim_db: float
+    metrics: AudioMetrics
+    processed_audio: np.ndarray
+    processed_sample_rate: int
+
+
 def _finite_mean(values: list[float]) -> float:
     finite = [float(value) for value in values if math.isfinite(float(value))]
     if not finite:
@@ -397,6 +405,60 @@ def process(
         clipped_sample_count=after.clipped_sample_count,
         processed_audio=processed if return_audio else None,
         processed_sample_rate=sample_rate if return_audio else None,
+    )
+
+
+def is_true_peak_only_guard_failure(reasons: list[str] | tuple[str, ...]) -> bool:
+    if not reasons:
+        return False
+    lowered = [str(reason).strip().lower() for reason in reasons]
+    return all(reason.startswith("true peak exceeded") for reason in lowered)
+
+
+def peak_safety_trim_db(
+    metrics: AudioMetrics,
+    *,
+    true_peak_ceiling_dbtp: float,
+    safety_margin_db: float = 0.05,
+    maximum_trim_db: float = 0.50,
+) -> float:
+    excess = float(metrics.true_peak_dbtp) - float(true_peak_ceiling_dbtp)
+    if not np.isfinite(excess) or excess <= 0.0:
+        return 0.0
+    needed = excess + max(0.0, float(safety_margin_db))
+    if needed > float(maximum_trim_db):
+        return 0.0
+    return -round(float(needed), 3)
+
+
+def apply_peak_safety_trim(
+    dst: str | Path,
+    *,
+    trim_db: float,
+    source_audio: np.ndarray | None = None,
+    source_sample_rate: int | None = None,
+    subtype: str = "PCM_24",
+    true_peak_oversample: int = 4,
+) -> PeakTrimRender:
+    target = Path(dst)
+    if source_audio is None or source_sample_rate is None:
+        audio, sample_rate = sf.read(target, always_2d=True, dtype="float64")
+    else:
+        audio = np.asarray(source_audio, dtype=np.float64)
+        sample_rate = int(source_sample_rate)
+    gain = 10.0 ** (float(trim_db) / 20.0)
+    processed = audio * gain
+    sf.write(target, processed, sample_rate, subtype=subtype)
+    metrics = analyze_array(
+        processed,
+        sample_rate,
+        true_peak_oversample=true_peak_oversample,
+    )
+    return PeakTrimRender(
+        trim_db=float(trim_db),
+        metrics=metrics,
+        processed_audio=processed,
+        processed_sample_rate=sample_rate,
     )
 
 

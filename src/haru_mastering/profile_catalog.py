@@ -21,6 +21,11 @@ class ChannelProfile:
     body_scale: float
     character: str
     default_fullness_strength_percent: int = 100
+    max_projected_peak_reduction_db: float = 1.5
+    maximum_loudness_concession_lu: float = 2.0
+    compression_transparent_margin_lu: float = 0.5
+    compression_reduced_margin_lu: float = 1.0
+    compression_reduced_scale: float = 0.35
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -527,6 +532,15 @@ def compose_runtime_profile(
     profile = copy.deepcopy(dict(base_profile))
     profile["label"] = f"{channel.label} + {genre.label}"
     profile["targetLufsI"] = float(channel.target_lufs_i)
+    profile["configuredTargetLufsI"] = float(channel.target_lufs_i)
+    profile["minimumTargetLufsI"] = float(
+        channel.target_lufs_i - channel.maximum_loudness_concession_lu
+    )
+    profile["maxProjectedPeakReductionDb"] = float(channel.max_projected_peak_reduction_db)
+    profile["maximumLoudnessConcessionLu"] = float(channel.maximum_loudness_concession_lu)
+    profile["compressionTransparentMarginLu"] = float(channel.compression_transparent_margin_lu)
+    profile["compressionReducedMarginLu"] = float(channel.compression_reduced_margin_lu)
+    profile["compressionReducedScale"] = float(channel.compression_reduced_scale)
     profile["truePeakCeilingDbtp"] = float(channel.true_peak_ceiling_dbtp)
     profile["maxLraReductionLu"] = float(
         min(channel.max_lra_reduction_lu, genre.max_lra_reduction_lu)
@@ -547,4 +561,3 @@ def compose_runtime_profile(
         "bodyScale": float(channel.body_scale),
     }
     return profile
-

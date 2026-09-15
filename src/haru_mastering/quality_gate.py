@@ -144,8 +144,11 @@ def classify_tail_silence_difference(
     tail_hard_cut: bool,
     tail_energetic_end: bool,
     tail_last_sample_dbfs: float,
+    tail_end_rms_dbfs: float | None = None,
     warning_threshold_ms: float = 20.0,
     information_limit_ms: float = 50.0,
+    silent_information_limit_ms: float = 100.0,
+    very_safe_end_rms_dbfs: float = -80.0,
     last_sample_threshold_dbfs: float = -60.0,
 ) -> tuple[str, str]:
     """Classify small silence-edge differences without creating false Tail WARNs."""
@@ -163,6 +166,23 @@ def classify_tail_silence_difference(
             "INFO",
             f"minor trailing-silence difference {difference_ms:.1f} ms; "
             "final tail is silent and safe",
+        )
+    end_rms_safe = (
+        tail_end_rms_dbfs is not None
+        and (
+            not np.isfinite(float(tail_end_rms_dbfs))
+            or float(tail_end_rms_dbfs) <= float(very_safe_end_rms_dbfs)
+        )
+    )
+    if (
+        final_tail_safe
+        and end_rms_safe
+        and difference_ms <= float(silent_information_limit_ms)
+    ):
+        return (
+            "INFO",
+            f"silent trailing-silence difference {difference_ms:.1f} ms; "
+            "final tail is fully quiet and safe",
         )
 
     return (
@@ -445,6 +465,7 @@ def evaluate_master(
         duration_delta_ms=duration_delta_ms,
         tail_hard_cut=tail_hard_cut,
         tail_energetic_end=tail_energetic_end,
+        tail_end_rms_dbfs=tail_end_rms_dbfs,
         tail_last_sample_dbfs=tail_last_sample_dbfs,
         warning_threshold_ms=tail_silence_warning_threshold_ms,
         information_limit_ms=tail_silence_information_limit_ms,

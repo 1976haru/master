@@ -45,11 +45,15 @@ from haru_mastering.filenames import final_output_name
 from haru_mastering.fullness import (
     MAX_FULLNESS_RENDER_PASSES,
     FullnessDecision,
+    apply_peak_safety_trim,
     default_fullness_mode,
     decide as decide_fullness,
+    is_true_peak_only_guard_failure,
+    peak_safety_trim_db,
     process as process_fullness,
     reduce_decision_for_guard_reasons,
 )
+from haru_mastering.preflight import PreflightDecision, decide_preflight
 from haru_mastering.profile_catalog import (
     CHANNEL_DISPLAY_ORDER,
     CHANNEL_PROFILES,
@@ -134,6 +138,8 @@ class TrackCounters:
     codec_sound_reapply_count: int = 0
     accepted_sound_mode: str = "NATURAL"
     accepted_fullness_strength: int = 0
+    accepted_peak_trim_db: float = 0.0
+    peak_trim_count: int = 0
     codec_check_count: int = 0
     fullness_render_limit: int = 2
 
@@ -152,6 +158,17 @@ TRACK_REPORT_FIELDS = (
     "source_dBTP",
     "source_LRA",
     "target_LUFS",
+    "configured_target_LUFS",
+    "adaptive_target_LUFS",
+    "loudness_concession_LU",
+    "projected_peak_reduction_dB",
+    "compression_mode",
+    "compression_scale",
+    "final_sound_mode",
+    "final_fullness_strength",
+    "peak_trim_db",
+    "quality_status",
+    "release_disposition",
     "final_LUFS",
     "final_dBTP",
     "processing_mode",
@@ -175,6 +192,7 @@ TRACK_REPORT_FIELDS = (
     "normal_quality_gate_count",
     "codec_final_quality_gate_count",
     "codec_sound_reapply_count",
+    "peak_trim_count",
     "codec_check_count",
     "notes",
 )
@@ -261,13 +279,84 @@ def _append_unique(items: list[str], text: str) -> None:
         items.append(text)
 
 
-def _automatic_limit_text(track: str, issues: list[str], profile_label: str) -> str:
+def _safe_int(value, default: int = 0) -> int:
+    try:
+        return int(str(value or "").strip())
+    except (TypeError, ValueError):
+        return default
+
+
+def _scaled_comp_for_preflight(comp: list[float] | tuple[float, ...], scale: float) -> list[float]:
+    threshold, ratio, attack, release, makeup = comp
+    factor = max(0.0, min(1.0, float(scale)))
+    return [
+        float(threshold),
+        round(1.0 + (float(ratio) - 1.0) * factor, 3),
+        float(attack),
+        float(release),
+        round(1.0 + (float(makeup) - 1.0) * factor, 3),
+    ]
+
+
+def _release_warning_is_safe(text: str) -> bool:
+    warning = str(text or "").strip().lower()
+    return warning.startswith(("minor trailing-silence", "silent trailing-silence", "sub-millisecond delay"))
+
+
+def _release_disposition(result, *, codec_safe: bool, codec_error: str = "") -> str:
+    if codec_error or not codec_safe:
+        return "NEEDS_REVIEW"
+    if result is None or getattr(result, "issues", ()):
+        return "NEEDS_REVIEW"
+    warnings = tuple(getattr(result, "warnings", ()))
+    if warnings:
+        if all(_release_warning_is_safe(warning) for warning in warnings):
+            return "RELEASE_READY_WITH_WARNING"
+        return "NEEDS_REVIEW"
+    return "RELEASE_READY"
+
+
+def _quality_status(result) -> str:
+    if result is None:
+        return "FAIL"
+    return str(getattr(result, "status", "FAIL") or "FAIL")
+
+
+def _attempted_steps_from_row(row: dict | None) -> list[str]:
+    if not row:
+        return ["basic mastering and quality validation"]
+    steps: list[str] = []
+    if _safe_int(row.get("transparent_render_count")):
+        steps.append("transparent mastering")
+    if _safe_int(row.get("fullness_render_count")):
+        steps.append("Fullness adjustment")
+    if _safe_int(row.get("peak_trim_count")):
+        steps.append("Fullness peak trim")
+    if str(row.get("tail_fix_mode") or "").strip() not in {"", "none"}:
+        steps.append("Tail repair")
+    if _safe_int(row.get("codec_check_count")):
+        steps.append("Codec safety check")
+    if _safe_int(row.get("codec_ceiling_rerender_count")):
+        steps.append("Codec ceiling rerender")
+    return steps or ["basic mastering and quality validation"]
+
+
+def _automatic_limit_text(
+    track: str,
+    issues: list[str],
+    profile_label: str,
+    row: dict | None = None,
+) -> str:
+    attempted = _attempted_steps_from_row(row)
     lines = [
         "=" * 72,
         f"자동 해결 한도 초과: {track}",
         f"프로필: {profile_label}",
         "",
-        "프로그램이 압축 완화, 투명 마스터링, Tail 자동수정, 코덱 보호를 모두 시도했습니다.",
+        "실제로 수행한 자동 처리:",
+    ]
+    lines.extend(f"- {step}" for step in attempted)
+    lines += [
         "",
         "남은 문제:",
     ]
@@ -594,6 +683,26 @@ class AppV39(v38.AppV38):
             profile=profile,
         )
 
+    def _apply_preflight_profile(
+        self,
+        mastering_key: str,
+        decision: PreflightDecision,
+        *,
+        original_legacy: dict,
+        profile: dict,
+    ) -> dict:
+        track_profile = copy.deepcopy(profile)
+        track_profile["targetLufsI"] = float(decision.adaptive_target_lufs)
+        track_profile["preflight"] = decision.to_dict()
+
+        legacy.GENRES[mastering_key]["target_i"] = float(decision.adaptive_target_lufs)
+        legacy.GENRES[mastering_key]["comp"] = _scaled_comp_for_preflight(
+            original_legacy.get("comp", legacy.GENRES[mastering_key].get("comp", [0.2, 1.2, 30, 300, 1.0])),
+            decision.compression_scale,
+        )
+        _COMPOSITE_RUNTIME_PROFILES[mastering_key] = copy.deepcopy(track_profile)
+        return track_profile
+
     def _render_fullness_candidate(
         self,
         base: Path,
@@ -633,6 +742,66 @@ class AppV39(v38.AppV38):
             self._fullness_render_count += 1
             counters.fullness_render_count += 1
         return render
+
+    def _try_fullness_peak_trim(
+        self,
+        dst: Path,
+        render,
+        result,
+        gate_kwargs: dict,
+        auto_cfg: dict,
+        source_ctx: SourceContext,
+        counters: TrackCounters,
+        timing: TrackTiming,
+        evaluate_with_optional_cache,
+        *,
+        tail_repair,
+        fixes: list[str],
+        track_index: int,
+        track_total: int,
+    ):
+        reasons = list(getattr(result, "issues", ()))
+        if not is_true_peak_only_guard_failure(reasons):
+            return result, tail_repair, False
+        trim_db = peak_safety_trim_db(
+            result.processed,
+            true_peak_ceiling_dbtp=float(gate_kwargs["true_peak_ceiling_dbtp"]),
+            safety_margin_db=0.05,
+            maximum_trim_db=0.50,
+        )
+        if trim_db >= 0.0:
+            return result, tail_repair, False
+        if counters.normal_quality_gate_count >= counters.normal_quality_gate_limit:
+            return result, tail_repair, False
+
+        start_trim = time.perf_counter()
+        trim = apply_peak_safety_trim(
+            dst,
+            trim_db=trim_db,
+            source_audio=render.processed_audio,
+            source_sample_rate=render.processed_sample_rate,
+            true_peak_oversample=int(gate_kwargs.get("true_peak_oversample", 4)),
+        )
+        counters.peak_trim_count += 1
+        counters.accepted_peak_trim_db = round(
+            float(counters.accepted_peak_trim_db) + float(trim.trim_db),
+            3,
+        )
+        _append_unique(fixes, f"Fullness peak trim {trim.trim_db:.2f} dB")
+        self._stage_log(
+            track_index,
+            track_total,
+            f"Fullness peak trim {trim.trim_db:.2f} dB",
+            time.perf_counter() - start_trim,
+        )
+        tail_repair = self._repair_tail(dst, auto_cfg, fixes)
+        trimmed_result = evaluate_with_optional_cache(
+            tail_repair=tail_repair,
+            processed_audio=trim.processed_audio,
+            processed_sample_rate=trim.processed_sample_rate,
+            processed_metrics=trim.metrics,
+        )
+        return trimmed_result, tail_repair, True
 
     def _finish_candidate(
         self,
@@ -713,6 +882,7 @@ class AppV39(v38.AppV38):
             if not result.issues:
                 counters.accepted_sound_mode = "NATURAL"
                 counters.accepted_fullness_strength = 0
+                counters.accepted_peak_trim_db = 0.0
             self._fullness_metadata[track] = self._metadata_from_decision(
                 decision,
                 retry_count=0,
@@ -766,10 +936,27 @@ class AppV39(v38.AppV38):
                 processed_sample_rate=render.processed_sample_rate,
                 processed_metrics=render.after,
             )
+            result, tail_repair, trimmed = self._try_fullness_peak_trim(
+                dst,
+                render,
+                result,
+                gate_kwargs,
+                auto_cfg,
+                source_ctx,
+                counters,
+                timing,
+                evaluate_with_optional_cache,
+                tail_repair=tail_repair,
+                fixes=fixes,
+                track_index=track_index,
+                track_total=track_total,
+            )
             reasons = list(result.issues)
             if not reasons:
                 counters.accepted_sound_mode = "RICH"
                 counters.accepted_fullness_strength = render.decision.strength_percent
+                if not trimmed:
+                    counters.accepted_peak_trim_db = 0.0
                 self._fullness_metadata[track] = self._metadata_from_decision(
                     render.decision,
                     retry_count=pass_index,
@@ -819,6 +1006,24 @@ class AppV39(v38.AppV38):
                 f"{decision.strength_percent}% ({' / '.join(reasons)[:160]})",
             )
 
+        if counters.normal_quality_gate_count >= counters.normal_quality_gate_limit:
+            self._fullness_metadata[track] = self._metadata_from_decision(
+                decision,
+                retry_count=render_count,
+                auto_reduced=render_count > 1,
+                bypassed_reason="normal_quality_gate_budget_exhausted",
+            )
+            return CandidateFinish(
+                False,
+                "normal quality gate budget exhausted before NATURAL fallback",
+                result,
+                tail_repair,
+                timing,
+                render_count,
+                last_reasons,
+                recommended_strength,
+            )
+
         fallback = self._fullness_decision(
             base_metrics,
             mastering_key,
@@ -837,6 +1042,7 @@ class AppV39(v38.AppV38):
         if not result.issues:
             counters.accepted_sound_mode = "NATURAL"
             counters.accepted_fullness_strength = 0
+            counters.accepted_peak_trim_db = 0.0
         self._fullness_metadata[track] = self._metadata_from_decision(
             fallback,
             retry_count=render_count,
@@ -878,6 +1084,7 @@ class AppV39(v38.AppV38):
         processed_audio = base_ctx.audio
         processed_sample_rate = base_ctx.sample_rate
         processed_metrics = base_ctx.metrics
+        accepted_peak_trim_db = float(counters.accepted_peak_trim_db or 0.0)
 
         if accepted_mode == "RICH" and accepted_strength > 0 and counters.codec_sound_reapply_count < 1:
             decision = self._fullness_decision(
@@ -915,6 +1122,26 @@ class AppV39(v38.AppV38):
                 )
             shutil.copy2(base, dst)
             self._stage_log(track_index, track_total, "Codec sound state: NATURAL", 0.0)
+
+        if accepted_peak_trim_db < 0.0:
+            start_trim = time.perf_counter()
+            trim = apply_peak_safety_trim(
+                dst,
+                trim_db=accepted_peak_trim_db,
+                source_audio=processed_audio,
+                source_sample_rate=processed_sample_rate,
+                true_peak_oversample=int(gate_kwargs.get("true_peak_oversample", 4)),
+            )
+            processed_audio = trim.processed_audio
+            processed_sample_rate = trim.processed_sample_rate
+            processed_metrics = trim.metrics
+            counters.peak_trim_count += 1
+            self._stage_log(
+                track_index,
+                track_total,
+                f"Codec peak trim {accepted_peak_trim_db:.2f} dB",
+                time.perf_counter() - start_trim,
+            )
 
         tail_repair = self._repair_tail(dst, auto_cfg, fixes)
         if getattr(tail_repair, "mode", "none") != "none":
@@ -1048,6 +1275,8 @@ class AppV39(v38.AppV38):
         codec_safe_count = 0
         total = len(files)
         original_tp = float(legacy.GENRES[mastering_key]["target_tp"])
+        original_genre_state = copy.deepcopy(legacy.GENRES[mastering_key])
+        original_runtime_profile = copy.deepcopy(_COMPOSITE_RUNTIME_PROFILES.get(mastering_key, {}))
 
         self.after(0, self.append_log, f"{DISPLAY_VERSION} CHANNEL + GENRE / FAST FULLNESS ENGINE")
         self.after(0, self.append_log, f"채널: {channel.label}")
@@ -1075,6 +1304,32 @@ class AppV39(v38.AppV38):
                     self._stage_log(idx, total, "analysis", track_timing.analysis)
 
                     raw_lra = legacy.safe_float(source_ctx.raw.get("input_lra"))
+                    preflight = decide_preflight(
+                        source_ctx.metrics,
+                        profile,
+                        configured_target_lufs=float(profile["targetLufsI"]),
+                        true_peak_ceiling_dbtp=float(profile["truePeakCeilingDbtp"]),
+                        minimum_final_lra_lu=float(gate_kwargs.get("minimum_final_lra_lu", 3.5)),
+                    )
+                    track_gate_kwargs = dict(gate_kwargs)
+                    track_gate_kwargs["target_lufs_i"] = float(preflight.adaptive_target_lufs)
+                    track_profile = self._apply_preflight_profile(
+                        mastering_key,
+                        preflight,
+                        original_legacy=original_genre_state,
+                        profile=profile,
+                    )
+                    self.after(
+                        0,
+                        self.append_log,
+                        f"    [Preflight] target {preflight.configured_target_lufs:.2f} -> "
+                        f"{preflight.adaptive_target_lufs:.2f} LUFS / "
+                        f"projected peak reduction {preflight.projected_peak_reduction_db:.2f} dB / "
+                        f"compression {preflight.compression_mode} x{preflight.compression_scale:.2f}",
+                    )
+                    if preflight.reasons:
+                        self.after(0, self.append_log, f"    Reason: {', '.join(preflight.reasons)}")
+
                     factor = legacy.adaptive_factor(raw_lra) if mode == "QUALITY+" else 1.0
                     current_tp = original_tp
                     dst = out_dir / final_output_name(src)
@@ -1114,7 +1369,7 @@ class AppV39(v38.AppV38):
                         track_timing.fullness_analysis += analysis_seconds
                         self._stage_log(idx, total, "Fullness analysis", analysis_seconds)
 
-                        base_dynamics = dynamics_stats(source_ctx.metrics, base_ctx.metrics, gate_kwargs)
+                        base_dynamics = dynamics_stats(source_ctx.metrics, base_ctx.metrics, track_gate_kwargs)
                         if base_dynamics.risky:
                             self.after(0, self.append_log, "    Dynamics origin: Base")
                             self.after(
@@ -1154,9 +1409,9 @@ class AppV39(v38.AppV38):
                                     base,
                                     dst,
                                     mastering_key,
-                                    gate_kwargs,
+                                    track_gate_kwargs,
                                     auto_cfg,
-                                    profile,
+                                    track_profile,
                                     source_ctx,
                                     base_ctx,
                                     fixes,
@@ -1181,9 +1436,9 @@ class AppV39(v38.AppV38):
                                 base,
                                 dst,
                                 mastering_key,
-                                gate_kwargs,
+                                track_gate_kwargs,
                                 auto_cfg,
-                                profile,
+                                track_profile,
                                 source_ctx,
                                 base_ctx,
                                 fixes,
@@ -1227,9 +1482,9 @@ class AppV39(v38.AppV38):
                                 base,
                                 dst,
                                 mastering_key,
-                                gate_kwargs,
-                                auto_cfg,
-                                profile,
+                            track_gate_kwargs,
+                            auto_cfg,
+                            track_profile,
                                 source_ctx,
                                 base_ctx,
                                 fixes,
@@ -1243,7 +1498,11 @@ class AppV39(v38.AppV38):
                             tail_repair = candidate.tail_repair
                             track_timing.fullness_render += candidate.timings.fullness_render
                             track_timing.quality_gate += candidate.timings.quality_gate
-                    if render_ok and result is not None and result.status == "PASS" and codec_enabled:
+                    pre_codec_release_candidate = (
+                        result is not None
+                        and _release_disposition(result, codec_safe=True, codec_error="") != "NEEDS_REVIEW"
+                    )
+                    if render_ok and result is not None and pre_codec_release_candidate and codec_enabled:
                         self._stage_status(idx, total, "codec safety check", src)
                         codec_attempt_limit = policy.codec_maximum_auto_rerenders if mode == "QUALITY+" else 0
                         for codec_attempt in range(codec_attempt_limit + 1):
@@ -1251,7 +1510,7 @@ class AppV39(v38.AppV38):
                             try:
                                 codec_result = v32.check_codec_safety(
                                     dst,
-                                    true_peak_ceiling_dbtp=float(profile["truePeakCeilingDbtp"]),
+                                    true_peak_ceiling_dbtp=float(track_profile["truePeakCeilingDbtp"]),
                                     tolerance_db=codec_tolerance,
                                     ffmpeg=self.ffmpeg,
                                 )
@@ -1296,9 +1555,9 @@ class AppV39(v38.AppV38):
                                 base,
                                 dst,
                                 mastering_key,
-                                gate_kwargs,
+                                track_gate_kwargs,
                                 auto_cfg,
-                                profile,
+                                track_profile,
                                 source_ctx,
                                 base_ctx,
                                 fixes,
@@ -1316,6 +1575,7 @@ class AppV39(v38.AppV38):
 
                     if not render_ok or result is None:
                         status = "FAIL"
+                        release_disposition = "NEEDS_REVIEW"
                         notes = "마스터링 처리 실패"
                         unresolved.append((src.name, [notes]))
                         (out_dir / f"ERROR_{src.stem}.txt").write_text(
@@ -1326,28 +1586,29 @@ class AppV39(v38.AppV38):
                     else:
                         codec_safe = codec_result.safe if codec_result is not None else (not codec_enabled)
                         if result.status == "PASS" and codec_error:
-                            status = "FAIL"
                             notes = codec_error
                             result = replace(result, status="FAIL", issues=result.issues + (notes,))
-                            unresolved.append((src.name, [notes]))
                         elif result.status == "PASS" and not codec_safe:
-                            status = "FAIL"
                             notes = f"codec peak unsafe: {codec_result.maximum_true_peak_dbtp:.2f} dBTP"
                             result = replace(result, status="FAIL", issues=result.issues + (notes,))
-                            unresolved.append((src.name, [notes]))
                         else:
-                            status = result.status
                             notes = " / ".join(list(result.issues) + list(result.warnings))
-                            if status != "PASS":
-                                unresolved.append((src.name, list(result.issues) + list(result.warnings)))
+                        status = _quality_status(result)
+                        release_disposition = _release_disposition(
+                            result,
+                            codec_safe=codec_safe,
+                            codec_error=codec_error,
+                        )
+                        if release_disposition == "NEEDS_REVIEW":
+                            unresolved.append((src.name, list(result.issues) + list(result.warnings)))
 
                         if codec_result is not None and codec_result.safe:
                             codec_safe_count += 1
                         gate_results.append((src.name, result))
 
-                    if fixes and status == "PASS":
+                    if fixes and release_disposition != "NEEDS_REVIEW":
                         auto_fixed_count += 1
-                    release_rows.append((dst, status))
+                    release_rows.append((dst, release_disposition))
                     final = result.processed if result is not None else None
                     rows.append(
                         {
@@ -1359,7 +1620,18 @@ class AppV39(v38.AppV38):
                             "source_LUFS": source_ctx.raw.get("input_i", ""),
                             "source_dBTP": source_ctx.raw.get("input_tp", ""),
                             "source_LRA": source_ctx.raw.get("input_lra", ""),
-                            "target_LUFS": legacy.GENRES[mastering_key]["target_i"],
+                            "target_LUFS": f"{preflight.adaptive_target_lufs:.2f}",
+                            "configured_target_LUFS": f"{preflight.configured_target_lufs:.2f}",
+                            "adaptive_target_LUFS": f"{preflight.adaptive_target_lufs:.2f}",
+                            "loudness_concession_LU": f"{preflight.loudness_concession_lu:.2f}",
+                            "projected_peak_reduction_dB": f"{preflight.projected_peak_reduction_db:.2f}",
+                            "compression_mode": preflight.compression_mode,
+                            "compression_scale": f"{preflight.compression_scale:.2f}",
+                            "final_sound_mode": counters.accepted_sound_mode,
+                            "final_fullness_strength": str(counters.accepted_fullness_strength),
+                            "peak_trim_db": f"{counters.accepted_peak_trim_db:.2f}",
+                            "quality_status": status,
+                            "release_disposition": release_disposition,
                             "final_LUFS": _format_metric(final.lufs_i) if final else "",
                             "final_dBTP": _format_metric(final.true_peak_dbtp) if final else "",
                             "processing_mode": processing_mode,
@@ -1389,6 +1661,7 @@ class AppV39(v38.AppV38):
                             "normal_quality_gate_count": str(counters.normal_quality_gate_count),
                             "codec_final_quality_gate_count": str(counters.codec_quality_gate_count),
                             "codec_sound_reapply_count": str(counters.codec_sound_reapply_count),
+                            "peak_trim_count": str(counters.peak_trim_count),
                             "codec_check_count": str(counters.codec_check_count),
                             "notes": notes,
                         }
@@ -1437,6 +1710,13 @@ class AppV39(v38.AppV38):
                     self.after(
                         0,
                         self.append_log,
+                        f"    Peak trims: {counters.peak_trim_count} / final sound: "
+                        f"{counters.accepted_sound_mode} {counters.accepted_fullness_strength}% "
+                        f"({counters.accepted_peak_trim_db:.2f} dB)",
+                    )
+                    self.after(
+                        0,
+                        self.append_log,
                         f"    Codec checks: {counters.codec_check_count}",
                     )
                     perf_level = performance_level(track_timing.total)
@@ -1465,7 +1745,13 @@ class AppV39(v38.AppV38):
                             f"    가장 느린 단계: {slow_name} {slow_seconds:.1f} sec",
                         )
                     self.after(0, self.append_log, f"[{idx:02d}/{total:02d}] 완료: {track_timing.total:.1f} sec")
-                    icon = "PASS" if status == "PASS" else "REVIEW"
+                    icon = (
+                        "PASS"
+                        if release_disposition == "RELEASE_READY"
+                        else "WARN"
+                        if release_disposition == "RELEASE_READY_WITH_WARNING"
+                        else "REVIEW"
+                    )
                     fix_text = f" | 자동수정: {', '.join(fixes)}" if fixes else ""
                     self.after(0, self.append_log, f"    -> {icon}{fix_text}")
                     self.after(0, self.progress_var.set, idx / total * 100)
@@ -1482,7 +1768,11 @@ class AppV39(v38.AppV38):
                     unresolved.append((src.name, [message]))
                     track_errors.append((src.name, message))
         finally:
-            legacy.GENRES[mastering_key]["target_tp"] = original_tp
+            legacy.GENRES[mastering_key] = copy.deepcopy(original_genre_state)
+            if original_runtime_profile:
+                _COMPOSITE_RUNTIME_PROFILES[mastering_key] = copy.deepcopy(original_runtime_profile)
+            else:
+                _COMPOSITE_RUNTIME_PROFILES.pop(mastering_key, None)
 
         for track_name, message in track_errors:
             error_row = {field: "" for field in TRACK_REPORT_FIELDS}
@@ -1511,9 +1801,15 @@ class AppV39(v38.AppV38):
 
         result_sections = []
         if unresolved:
+            row_by_track = {row.get("track", ""): row for row in rows}
             for name, issues in unresolved:
                 result_sections.append(
-                    _automatic_limit_text(name, issues, legacy.GENRES[mastering_key]["label"])
+                    _automatic_limit_text(
+                        name,
+                        issues,
+                        legacy.GENRES[mastering_key]["label"],
+                        row_by_track.get(name),
+                    )
                 )
         else:
             result_sections.append(
@@ -1537,11 +1833,18 @@ class AppV39(v38.AppV38):
 
         self._refresh_v39_reports(out_dir)
 
-        pass_count = sum(row["status"] == "PASS" for row in rows)
-        review_count = len(rows) - pass_count
+        pass_count = sum(row.get("quality_status", row.get("status")) == "PASS" for row in rows)
+        warn_count = sum(row.get("quality_status", row.get("status")) == "WARN" for row in rows)
+        fail_count = sum(row.get("quality_status", row.get("status")) == "FAIL" for row in rows)
+        release_ready_count = sum(
+            row.get("release_disposition") in {"RELEASE_READY", "RELEASE_READY_WITH_WARNING"}
+            for row in rows
+        )
+        safe_warning_count = sum(row.get("release_disposition") == "RELEASE_READY_WITH_WARNING" for row in rows)
+        review_count = len(rows) - release_ready_count
         beginner = write_beginner_summary(
             out_dir,
-            pass_count=pass_count,
+            pass_count=release_ready_count,
             review_count=review_count,
             auto_fixed_count=auto_fixed_count,
             codec_safe_count=codec_safe_count,
@@ -1551,7 +1854,8 @@ class AppV39(v38.AppV38):
 
         if review_count == 0:
             summary = (
-                f"자동완성 완료: {len(rows)}곡 전부 배포 가능\n"
+                f"자동완성 완료: 배포 가능 {release_ready_count}곡\n"
+                f"  PASS: {pass_count} / 안전 경고: {safe_warning_count}\n"
                 f"자동 수정 완료 {auto_fixed_count}곡 / 코덱 안전 {codec_safe_count}곡\n"
                 f"Fullness render {self._fullness_render_count}회 / Codec Preview {self._codec_preview_count}회\n"
                 f"사용할 폴더: {paths['release']}"
@@ -1559,7 +1863,10 @@ class AppV39(v38.AppV38):
             title = "v3.9 자동완성 - 배포 가능"
         else:
             summary = (
-                f"자동완성 완료: PASS {pass_count} / 배포 보류 {review_count}\n"
+                f"자동완성 완료: 배포 가능 {release_ready_count}곡\n"
+                f"  PASS: {pass_count} / 안전 경고: {safe_warning_count}\n"
+                f"검토 필요: {review_count}곡\n"
+                f"Quality Gate: PASS {pass_count} / WARN {warn_count} / FAIL {fail_count}\n"
                 f"Fullness render {self._fullness_render_count}회 / Codec Preview {self._codec_preview_count}회\n"
                 f"안전한 파일: {paths['release']}\n"
                 f"보류 파일: {paths['review']}\n"
@@ -1569,7 +1876,7 @@ class AppV39(v38.AppV38):
 
         self.after(0, self.append_log, "-" * 64)
         self.after(0, self.append_log, summary)
-        self.after(0, self.status_var.set, f"완료 - PASS {pass_count} / 보류 {review_count}")
+        self.after(0, self.status_var.set, f"완료 - 배포 가능 {release_ready_count} / 검토 {review_count}")
         self.after(0, self.start_btn.config, {"state": "normal"})
         self.after(0, lambda: legacy.messagebox.showinfo(title, summary))
 

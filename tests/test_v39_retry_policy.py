@@ -289,7 +289,7 @@ def test_worker_continues_to_next_track_after_track_exception(tmp_path, monkeypa
                 "transparentFallbackEnabled": True,
                 "codecPreviewEnabled": False,
             },
-            {"truePeakCeilingDbtp": -1.2},
+            {"targetLufsI": -14.0, "truePeakCeilingDbtp": -1.2},
         ),
     )
     monkeypatch.setattr(instance, "_source_context", fake_source_context)
