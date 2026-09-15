@@ -26,6 +26,9 @@ class ChannelProfile:
     compression_transparent_margin_lu: float = 0.5
     compression_reduced_margin_lu: float = 1.0
     compression_reduced_scale: float = 0.35
+    peak_stressed_max_projected_reduction_db: float = 0.8
+    absolute_minimum_safety_target_lufs_i: float = -18.0
+    true_peak_safety_margin_db: float = 0.05
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -541,6 +544,13 @@ def compose_runtime_profile(
     profile["compressionTransparentMarginLu"] = float(channel.compression_transparent_margin_lu)
     profile["compressionReducedMarginLu"] = float(channel.compression_reduced_margin_lu)
     profile["compressionReducedScale"] = float(channel.compression_reduced_scale)
+    profile["peakStressedMaxProjectedPeakReductionDb"] = float(
+        channel.peak_stressed_max_projected_reduction_db
+    )
+    profile["absoluteMinimumSafetyTargetLufsI"] = float(
+        channel.absolute_minimum_safety_target_lufs_i
+    )
+    profile["truePeakSafetyMarginDb"] = float(channel.true_peak_safety_margin_db)
     profile["truePeakCeilingDbtp"] = float(channel.true_peak_ceiling_dbtp)
     profile["maxLraReductionLu"] = float(
         min(channel.max_lra_reduction_lu, genre.max_lra_reduction_lu)

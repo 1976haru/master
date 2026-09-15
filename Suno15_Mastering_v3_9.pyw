@@ -75,6 +75,7 @@ from haru_mastering.retry_policy import (
     performance_level,
     slowest_stage,
 )
+from haru_mastering.transparent import decide_gain_only, render_gain_only
 from haru_mastering.version import APP_TITLE, DISPLAY_VERSION, REPORT_VERSION, VERSION
 import haru_mastering.report as report_module
 
@@ -140,6 +141,7 @@ class TrackCounters:
     accepted_fullness_strength: int = 0
     accepted_peak_trim_db: float = 0.0
     peak_trim_count: int = 0
+    gain_only_render_count: int = 0
     codec_check_count: int = 0
     fullness_render_limit: int = 2
 
@@ -164,6 +166,12 @@ TRACK_REPORT_FIELDS = (
     "projected_peak_reduction_dB",
     "compression_mode",
     "compression_scale",
+    "effective_target_LUFS",
+    "source_peak_stressed",
+    "source_clipping_detected",
+    "source_clipped_sample_count",
+    "gain_only_applied",
+    "gain_only_gain_db",
     "final_sound_mode",
     "final_fullness_strength",
     "peak_trim_db",
@@ -193,8 +201,24 @@ TRACK_REPORT_FIELDS = (
     "codec_final_quality_gate_count",
     "codec_sound_reapply_count",
     "peak_trim_count",
+    "gain_only_render_count",
     "codec_check_count",
     "notes",
+    "final_LRA",
+    "final_lufs_delta_lu",
+    "final_lufs_within_tolerance",
+    "codec_strategy",
+    "final_metrics_sync_version",
+    "app_version",
+    "fullness_mode",
+    "fullness_strength_percent",
+    "warmth_gain_db",
+    "body_gain_db",
+    "saturation_wet_percent",
+    "density_wet_percent",
+    "fullness_auto_reduced",
+    "fullness_retry_count",
+    "fullness_bypassed_reason",
 )
 
 
@@ -692,10 +716,14 @@ class AppV39(v38.AppV38):
         profile: dict,
     ) -> dict:
         track_profile = copy.deepcopy(profile)
-        track_profile["targetLufsI"] = float(decision.adaptive_target_lufs)
+        track_profile["targetLufsI"] = float(
+            decision.effective_target_lufs
+            if decision.effective_target_lufs is not None
+            else decision.adaptive_target_lufs
+        )
         track_profile["preflight"] = decision.to_dict()
 
-        legacy.GENRES[mastering_key]["target_i"] = float(decision.adaptive_target_lufs)
+        legacy.GENRES[mastering_key]["target_i"] = float(track_profile["targetLufsI"])
         legacy.GENRES[mastering_key]["comp"] = _scaled_comp_for_preflight(
             original_legacy.get("comp", legacy.GENRES[mastering_key].get("comp", [0.2, 1.2, 30, 300, 1.0])),
             decision.compression_scale,
@@ -879,6 +907,33 @@ class AppV39(v38.AppV38):
                 processed_sample_rate=base_ctx.sample_rate,
                 processed_metrics=base_metrics,
             )
+            if is_true_peak_only_guard_failure(getattr(result, "issues", ())):
+                trim_db = peak_safety_trim_db(
+                    result.processed,
+                    true_peak_ceiling_dbtp=float(gate_kwargs["true_peak_ceiling_dbtp"]),
+                    safety_margin_db=0.05,
+                    maximum_trim_db=0.50,
+                )
+                if trim_db < 0.0 and counters.normal_quality_gate_count < counters.normal_quality_gate_limit:
+                    peak_trim = apply_peak_safety_trim(
+                        dst,
+                        trim_db=trim_db,
+                        source_audio=base_ctx.audio,
+                        source_sample_rate=base_ctx.sample_rate,
+                        true_peak_oversample=int(gate_kwargs.get("true_peak_oversample", 4)),
+                    )
+                    counters.peak_trim_count += 1
+                    counters.accepted_peak_trim_db = round(
+                        float(counters.accepted_peak_trim_db) + float(peak_trim.trim_db),
+                        3,
+                    )
+                    _append_unique(fixes, f"Final peak trim {peak_trim.trim_db:.2f} dB")
+                    result = evaluate_with_optional_cache(
+                        tail_repair=self._repair_tail(dst, auto_cfg, fixes),
+                        processed_audio=peak_trim.processed_audio,
+                        processed_sample_rate=peak_trim.processed_sample_rate,
+                        processed_metrics=peak_trim.metrics,
+                    )
             if not result.issues:
                 counters.accepted_sound_mode = "NATURAL"
                 counters.accepted_fullness_strength = 0
@@ -1176,6 +1231,29 @@ class AppV39(v38.AppV38):
             return v372.AppV372._render_quality(self, source, base, mastering_key, factor)
         return legacy.master_one_pass(self.ffmpeg, source, base, mastering_key)
 
+    def _render_gain_only_base(
+        self,
+        source: Path,
+        base: Path,
+        source_ctx: SourceContext,
+        target_lufs: float,
+        true_peak_ceiling_dbtp: float,
+    ):
+        decision = decide_gain_only(
+            source_lufs=source_ctx.metrics.lufs_i,
+            source_true_peak_dbtp=source_ctx.metrics.true_peak_dbtp,
+            target_lufs=target_lufs,
+            true_peak_ceiling_dbtp=true_peak_ceiling_dbtp,
+            safety_margin_db=0.05,
+        )
+        ok, err, _metrics, _audio, _sample_rate = render_gain_only(
+            source,
+            base,
+            gain_db=decision.applied_gain_db,
+            true_peak_oversample=4,
+        )
+        return ok, err, decision
+
     def _render_transparent_base(
         self,
         source: Path,
@@ -1311,8 +1389,13 @@ class AppV39(v38.AppV38):
                         true_peak_ceiling_dbtp=float(profile["truePeakCeilingDbtp"]),
                         minimum_final_lra_lu=float(gate_kwargs.get("minimum_final_lra_lu", 3.5)),
                     )
+                    effective_target = float(
+                        preflight.effective_target_lufs
+                        if preflight.effective_target_lufs is not None
+                        else preflight.adaptive_target_lufs
+                    )
                     track_gate_kwargs = dict(gate_kwargs)
-                    track_gate_kwargs["target_lufs_i"] = float(preflight.adaptive_target_lufs)
+                    track_gate_kwargs["target_lufs_i"] = effective_target
                     track_profile = self._apply_preflight_profile(
                         mastering_key,
                         preflight,
@@ -1323,7 +1406,7 @@ class AppV39(v38.AppV38):
                         0,
                         self.append_log,
                         f"    [Preflight] target {preflight.configured_target_lufs:.2f} -> "
-                        f"{preflight.adaptive_target_lufs:.2f} LUFS / "
+                        f"{preflight.adaptive_target_lufs:.2f} LUFS / effective {effective_target:.2f} / "
                         f"projected peak reduction {preflight.projected_peak_reduction_db:.2f} dB / "
                         f"compression {preflight.compression_mode} x{preflight.compression_scale:.2f}",
                     )
@@ -1341,7 +1424,7 @@ class AppV39(v38.AppV38):
                     tail_repair = None
                     render_ok = False
                     render_err = ""
-                    processing_mode = "normal"
+                    processing_mode = "gain_only" if preflight.gain_only_recommended else "normal"
                     candidate = None
 
                     counters = TrackCounters(
@@ -1353,13 +1436,25 @@ class AppV39(v38.AppV38):
                     base_ctx = None
 
                     legacy.GENRES[mastering_key]["target_tp"] = current_tp
-                    self._stage_status(idx, total, "base mastering", src)
+                    base_stage = "GAIN-ONLY transparent mastering" if preflight.gain_only_recommended else "base mastering"
+                    self._stage_status(idx, total, base_stage, src)
                     start = time.perf_counter()
-                    render_ok, render_err = self._render_base(src, base, mastering_key, factor, mode)
+                    if preflight.gain_only_recommended:
+                        render_ok, render_err, gain_decision = self._render_gain_only_base(
+                            src,
+                            base,
+                            source_ctx,
+                            effective_target,
+                            float(track_profile["truePeakCeilingDbtp"]),
+                        )
+                        counters.gain_only_render_count += 1
+                    else:
+                        render_ok, render_err = self._render_base(src, base, mastering_key, factor, mode)
+                        gain_decision = None
                     counters.base_render_count += 1
                     base_seconds = time.perf_counter() - start
                     track_timing.base_mastering += base_seconds
-                    self._stage_log(idx, total, "base mastering", base_seconds)
+                    self._stage_log(idx, total, base_stage, base_seconds)
 
                     if render_ok and base.exists():
                         self._stage_status(idx, total, "Fullness analysis", src)
@@ -1379,7 +1474,7 @@ class AppV39(v38.AppV38):
                                 f"crest loss: {base_dynamics.crest_factor_loss_db:.2f} dB",
                             )
 
-                        if base_dynamics.risky and transparent_enabled:
+                        if base_dynamics.risky and transparent_enabled and not preflight.gain_only_recommended:
                             processing_mode = "transparent"
                             self.after(
                                 0,
@@ -1387,16 +1482,18 @@ class AppV39(v38.AppV38):
                                 "    Transparent fallback: base dynamics risk",
                             )
                             start = time.perf_counter()
-                            render_ok, render_err = self._render_transparent_base(
+                            render_ok, render_err, gain_decision = self._render_gain_only_base(
                                 src,
                                 base,
-                                mastering_key,
-                                auto_cfg,
+                                source_ctx,
+                                effective_target,
+                                float(track_profile["truePeakCeilingDbtp"]),
                             )
-                            counters.transparent_render_count += 1
+                            processing_mode = "gain_only"
+                            counters.gain_only_render_count += 1
                             base_seconds = time.perf_counter() - start
                             track_timing.base_mastering += base_seconds
-                            self._stage_log(idx, total, "transparent mastering", base_seconds)
+                            self._stage_log(idx, total, "GAIN-ONLY transparent mastering", base_seconds)
                             if render_ok and base.exists():
                                 _append_unique(fixes, "transparent mastering (dynamics fallback)")
                                 start = time.perf_counter()
@@ -1465,11 +1562,18 @@ class AppV39(v38.AppV38):
                         processing_mode = "transparent"
                         self.after(0, self.append_log, "    Transparent fallback: final dynamics risk")
                         start = time.perf_counter()
-                        render_ok, render_err = self._render_transparent_base(src, base, mastering_key, auto_cfg)
-                        counters.transparent_render_count += 1
+                        render_ok, render_err, gain_decision = self._render_gain_only_base(
+                            src,
+                            base,
+                            source_ctx,
+                            effective_target,
+                            float(track_profile["truePeakCeilingDbtp"]),
+                        )
+                        processing_mode = "gain_only"
+                        counters.gain_only_render_count += 1
                         base_seconds = time.perf_counter() - start
                         track_timing.base_mastering += base_seconds
-                        self._stage_log(idx, total, "transparent mastering", base_seconds)
+                        self._stage_log(idx, total, "GAIN-ONLY transparent mastering", base_seconds)
                         if render_ok and base.exists():
                             _append_unique(fixes, "transparent mastering (dynamics fallback)")
                             start = time.perf_counter()
@@ -1535,9 +1639,15 @@ class AppV39(v38.AppV38):
                             self.after(0, self.append_log, f"    ↻ AAC/MP3 피크 보호 재마스터 {codec_attempt + 1}/{codec_attempt_limit}")
                             start = time.perf_counter()
                             counters.codec_ceiling_rerender_count += 1
-                            if processing_mode == "transparent":
-                                render_ok, render_err = self._render_transparent_base(src, base, mastering_key, auto_cfg)
-                                counters.transparent_render_count += 1
+                            if processing_mode in {"transparent", "gain_only"}:
+                                render_ok, render_err, gain_decision = self._render_gain_only_base(
+                                    src,
+                                    base,
+                                    source_ctx,
+                                    effective_target,
+                                    current_tp,
+                                )
+                                counters.gain_only_render_count += 1
                             else:
                                 render_ok, render_err = self._render_base(src, base, mastering_key, factor, mode)
                             base_seconds = time.perf_counter() - start
@@ -1620,13 +1730,23 @@ class AppV39(v38.AppV38):
                             "source_LUFS": source_ctx.raw.get("input_i", ""),
                             "source_dBTP": source_ctx.raw.get("input_tp", ""),
                             "source_LRA": source_ctx.raw.get("input_lra", ""),
-                            "target_LUFS": f"{preflight.adaptive_target_lufs:.2f}",
+                            "target_LUFS": f"{effective_target:.2f}",
                             "configured_target_LUFS": f"{preflight.configured_target_lufs:.2f}",
                             "adaptive_target_LUFS": f"{preflight.adaptive_target_lufs:.2f}",
                             "loudness_concession_LU": f"{preflight.loudness_concession_lu:.2f}",
                             "projected_peak_reduction_dB": f"{preflight.projected_peak_reduction_db:.2f}",
                             "compression_mode": preflight.compression_mode,
                             "compression_scale": f"{preflight.compression_scale:.2f}",
+                            "effective_target_LUFS": f"{effective_target:.2f}",
+                            "source_peak_stressed": "true" if preflight.source_peak_stressed else "false",
+                            "source_clipping_detected": (
+                                "true" if source_ctx.metrics.clipped_sample_count > 0 else "false"
+                            ),
+                            "source_clipped_sample_count": str(source_ctx.metrics.clipped_sample_count),
+                            "gain_only_applied": "true" if preflight.gain_only_recommended else "false",
+                            "gain_only_gain_db": (
+                                f"{gain_decision.applied_gain_db:.2f}" if gain_decision is not None else ""
+                            ),
                             "final_sound_mode": counters.accepted_sound_mode,
                             "final_fullness_strength": str(counters.accepted_fullness_strength),
                             "peak_trim_db": f"{counters.accepted_peak_trim_db:.2f}",
@@ -1662,6 +1782,7 @@ class AppV39(v38.AppV38):
                             "codec_final_quality_gate_count": str(counters.codec_quality_gate_count),
                             "codec_sound_reapply_count": str(counters.codec_sound_reapply_count),
                             "peak_trim_count": str(counters.peak_trim_count),
+                            "gain_only_render_count": str(counters.gain_only_render_count),
                             "codec_check_count": str(counters.codec_check_count),
                             "notes": notes,
                         }

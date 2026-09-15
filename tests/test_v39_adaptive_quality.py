@@ -98,6 +98,9 @@ def test_river_between_stations_peak_pressure():
 
     assert decision.projected_peak_reduction_db > 3.5
     assert decision.adaptive_target_lufs == -16.0
+    assert decision.source_peak_stressed is True
+    assert decision.gain_only_recommended is True
+    assert decision.effective_target_lufs < -16.0
 
 
 def test_back_to_window_low_lra_compression_protection():
@@ -105,6 +108,41 @@ def test_back_to_window_low_lra_compression_protection():
 
     assert decision.projected_peak_reduction_db < 0.1
     assert decision.compression_mode == "TRANSPARENT"
+    assert decision.gain_only_recommended is True
+
+
+def test_peak_stressed_target_can_require_safety_floor_review():
+    decision = _decide(_metrics(lufs=-15.0, tp=3.5, lra=5.0, clipped=1))
+
+    assert decision.source_peak_stressed is True
+    assert decision.safety_floor_requires_review is True
+    assert decision.effective_target_lufs == -18.0
+
+
+def test_v39_final_csv_schema_preserves_legacy_fullness_and_adaptive_fields():
+    import Suno15_Mastering_v3_9 as app
+
+    required = {
+        "final_LRA",
+        "final_lufs_delta_lu",
+        "final_lufs_within_tolerance",
+        "codec_strategy",
+        "final_metrics_sync_version",
+        "app_version",
+        "fullness_mode",
+        "fullness_strength_percent",
+        "fullness_auto_reduced",
+        "fullness_retry_count",
+        "configured_target_LUFS",
+        "adaptive_target_LUFS",
+        "effective_target_LUFS",
+        "compression_mode",
+        "final_sound_mode",
+        "final_fullness_strength",
+        "release_disposition",
+    }
+
+    assert required.issubset(set(app.TRACK_REPORT_FIELDS))
 
 
 def test_true_peak_only_fullness_issue_uses_micro_trim():

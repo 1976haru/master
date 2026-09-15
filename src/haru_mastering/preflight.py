@@ -19,6 +19,13 @@ class PreflightDecision:
     loudness_adapted: bool
     compression_adapted: bool
     reasons: tuple[str, ...]
+    source_peak_stressed: bool = False
+    ordinary_adaptive_target_lufs: float | None = None
+    effective_target_lufs: float | None = None
+    gain_only_recommended: bool = False
+    peak_treatment_budget_db: float = 1.5
+    absolute_safety_floor_lufs: float = -18.0
+    safety_floor_requires_review: bool = False
 
     @property
     def loudness_concession_lu(self) -> float:
@@ -59,6 +66,13 @@ def decide_preflight(
         profile.get("minimumTargetLufsI", configured - max(0.0, max_concession))
     )
     peak_budget = float(profile.get("maxProjectedPeakReductionDb", 1.5))
+    source_peak_stressed = metrics.clipped_sample_count > 0 or source_tp >= 0.0
+    peak_treatment_budget = float(
+        profile.get("peakStressedMaxProjectedPeakReductionDb", 0.8)
+        if source_peak_stressed
+        else peak_budget
+    )
+    absolute_floor = float(profile.get("absoluteMinimumSafetyTargetLufsI", -18.0))
 
     gain_to_target = configured - source_lufs
     projected_tp = source_tp + gain_to_target
@@ -66,10 +80,10 @@ def decide_preflight(
 
     adaptive = configured
     reasons: list[str] = []
-    if metrics.clipped_sample_count > 0 or source_tp >= 0.0:
+    if source_peak_stressed:
         reasons.append("source peak pressure")
-    if projected_reduction > peak_budget:
-        excess = projected_reduction - peak_budget
+    if projected_reduction > peak_treatment_budget:
+        excess = projected_reduction - peak_treatment_budget
         adaptive = max(minimum_target, configured - excess)
         if adaptive < configured - 0.01:
             reasons.append("projected peak reduction budget")
@@ -91,6 +105,25 @@ def decide_preflight(
         compression_mode = "PROFILE"
         compression_scale = 1.0
 
+    ordinary_adaptive = float(adaptive)
+    gain_only_recommended = compression_mode == "TRANSPARENT" or source_peak_stressed
+    effective = ordinary_adaptive
+    safety_floor_requires_review = False
+    if gain_only_recommended:
+        peak_safe_target = source_lufs + (
+            ceiling - float(profile.get("truePeakSafetyMarginDb", 0.05)) - source_tp
+        )
+        if source_peak_stressed:
+            effective = min(ordinary_adaptive, peak_safe_target)
+            safety_floor_requires_review = effective < absolute_floor - 1e-9
+            effective = max(absolute_floor, effective)
+            if effective < ordinary_adaptive - 0.01:
+                reasons.append("gain-only peak safety")
+        else:
+            effective = min(ordinary_adaptive, peak_safe_target)
+        if safety_floor_requires_review:
+            reasons.append("safety floor requires review")
+
     return PreflightDecision(
         configured_target_lufs=configured,
         adaptive_target_lufs=round(float(adaptive), 3),
@@ -102,4 +135,11 @@ def decide_preflight(
         loudness_adapted=adaptive < configured - 0.01,
         compression_adapted=compression_mode != "PROFILE",
         reasons=tuple(dict.fromkeys(reasons)),
+        source_peak_stressed=source_peak_stressed,
+        ordinary_adaptive_target_lufs=round(ordinary_adaptive, 3),
+        effective_target_lufs=round(float(effective), 3),
+        gain_only_recommended=gain_only_recommended,
+        peak_treatment_budget_db=round(peak_treatment_budget, 3),
+        absolute_safety_floor_lufs=round(absolute_floor, 3),
+        safety_floor_requires_review=safety_floor_requires_review,
     )
