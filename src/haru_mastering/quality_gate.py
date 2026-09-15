@@ -273,14 +273,32 @@ def evaluate_master(
     tail_silence_information_limit_ms: float = 50.0,
     max_delay_ms: float = 100.0,
     true_peak_oversample: int = 4,
+    source_audio: np.ndarray | None = None,
+    source_sample_rate: int | None = None,
+    source_metrics: AudioMetrics | None = None,
+    processed_audio: np.ndarray | None = None,
+    processed_sample_rate: int | None = None,
+    processed_metrics: AudioMetrics | None = None,
 ) -> QualityGateResult:
     source_file = Path(source_path)
     processed_file = Path(processed_path)
-    source_audio, source_sr = sf.read(source_file, always_2d=True, dtype="float64")
-    processed_audio, processed_sr = sf.read(processed_file, always_2d=True, dtype="float64")
+    if source_audio is None or source_sample_rate is None:
+        source_audio, source_sr = sf.read(source_file, always_2d=True, dtype="float64")
+    else:
+        source_audio = np.asarray(source_audio, dtype=np.float64)
+        source_sr = int(source_sample_rate)
+    if processed_audio is None or processed_sample_rate is None:
+        processed_audio, processed_sr = sf.read(processed_file, always_2d=True, dtype="float64")
+    else:
+        processed_audio = np.asarray(processed_audio, dtype=np.float64)
+        processed_sr = int(processed_sample_rate)
 
-    source = analyze_array(source_audio, source_sr, true_peak_oversample=true_peak_oversample)
-    processed = analyze_array(
+    source = source_metrics or analyze_array(
+        source_audio,
+        source_sr,
+        true_peak_oversample=true_peak_oversample,
+    )
+    processed = processed_metrics or analyze_array(
         processed_audio,
         processed_sr,
         true_peak_oversample=true_peak_oversample,

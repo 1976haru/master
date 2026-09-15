@@ -5,10 +5,10 @@ cd /d "%~dp0"
 chcp 65001 >nul
 set "PYTHONUTF8=1"
 
-title HARU SUNO 15SET MASTERING v3.8.1 - INSTALL
+title HARU SUNO 15SET MASTERING v3.9 - INSTALL
 
 echo ============================================================
-echo HARU / SUNO 15SET MASTERING v3.8.1 INSTALL
+echo HARU / SUNO 15SET MASTERING v3.9 INSTALL
 echo ============================================================
 echo.
 
@@ -46,76 +46,80 @@ echo.
 if exist ".venv\Scripts\python.exe" (
     echo Existing virtual environment found.
 ) else (
-    echo [1/15] Creating virtual environment...
+    echo [1/19] Creating virtual environment...
     %PY_CMD% -m venv ".venv"
     if errorlevel 1 goto :FAIL
 )
 
-echo [2/15] Updating pip...
+echo [2/19] Updating pip...
 ".venv\Scripts\python.exe" -m pip install --upgrade pip
 if errorlevel 1 goto :FAIL
 
-echo [3/15] Installing FFmpeg helper and audio analysis libraries...
+echo [3/19] Installing FFmpeg helper and audio analysis libraries...
 ".venv\Scripts\python.exe" -m pip install --upgrade imageio-ffmpeg numpy scipy soundfile pyloudnorm
 if errorlevel 1 goto :FAIL
 
-echo [4/18] Installing HARU Mastering v3.8.1 core from this folder...
+echo [4/19] Installing HARU Mastering v3.9 core from this folder...
 ".venv\Scripts\python.exe" -m pip install -e .
 if errorlevel 1 goto :FAIL
 
-echo [5/18] Verifying v3 feature core...
+echo [5/19] Verifying v3 feature core...
 ".venv\Scripts\python.exe" .\scripts\verify_v3_features.py
 if errorlevel 1 goto :FAIL
 
-echo [6/18] Verifying v3 runtime adapter...
+echo [6/19] Verifying v3 runtime adapter...
 ".venv\Scripts\python.exe" .\scripts\verify_v3_app.py
 if errorlevel 1 goto :FAIL
 
-echo [7/18] Verifying v3.2 auto-finish adapter...
+echo [7/19] Verifying v3.2 auto-finish adapter...
 ".venv\Scripts\python.exe" .\scripts\verify_v31_app.py
 if errorlevel 1 goto :FAIL
 
-echo [8/18] Verifying v3.3 codec auto-gain adapter...
+echo [8/19] Verifying v3.3 codec auto-gain adapter...
 ".venv\Scripts\python.exe" .\scripts\verify_v33_app.py
 if errorlevel 1 goto :FAIL
 
-echo [9/18] Verifying v3.4 smart delay adapter...
+echo [9/19] Verifying v3.4 smart delay adapter...
 ".venv\Scripts\python.exe" .\scripts\verify_v34_app.py
 if errorlevel 1 goto :FAIL
 
-echo [10/18] Verifying v3.5 adaptive tail adapter...
+echo [10/19] Verifying v3.5 adaptive tail adapter...
 ".venv\Scripts\python.exe" .\scripts\verify_v35_app.py
 if errorlevel 1 goto :FAIL
 
-echo [11/18] Verifying v3.6 final report synchronization...
+echo [11/19] Verifying v3.6 final report synchronization...
 ".venv\Scripts\python.exe" .\scripts\verify_v36_app.py
 if errorlevel 1 goto :FAIL
 
-echo [12/18] Verifying v3.6.1 final metrics and Tail INFO guard...
+echo [12/19] Verifying v3.6.1 final metrics and Tail INFO guard...
 ".venv\Scripts\python.exe" .\scripts\verify_v361_app.py
 if errorlevel 1 goto :FAIL
 
-echo [13/18] Verifying v3.7 expanded genre profiles...
+echo [13/19] Verifying v3.7 expanded genre profiles...
 ".venv\Scripts\python.exe" .\scripts\verify_v37_app.py
 if errorlevel 1 goto :FAIL
 
-echo [14/18] Verifying v3.7.1 loudness-safe codec strategy...
+echo [14/19] Verifying v3.7.1 loudness-safe codec strategy...
 ".venv\Scripts\python.exe" .\scripts\verify_v371_app.py
 if errorlevel 1 goto :FAIL
 
-echo [15/18] Verifying v3.7.2 guaranteed CSV synchronization...
+echo [15/19] Verifying v3.7.2 guaranteed CSV synchronization...
 ".venv\Scripts\python.exe" .\scripts\verify_v372_app.py
 if errorlevel 1 goto :FAIL
 
-echo [16/18] Verifying v3.8 Fullness Engine...
+echo [16/19] Verifying v3.8 Fullness Engine adapter...
 ".venv\Scripts\python.exe" .\scripts\verify_v38_app.py
 if errorlevel 1 goto :FAIL
 
-echo [17/18] Verifying v3.8.1 filename cleanup...
+echo [17/19] Verifying v3.8.1 filename cleanup adapter...
 ".venv\Scripts\python.exe" .\scripts\verify_v381_app.py
 if errorlevel 1 goto :FAIL
 
-echo [18/18] Verifying v3.8.1 launch paths...
+echo [18/19] Verifying v3.9 channel/genre fast fullness runtime...
+".venv\Scripts\python.exe" .\scripts\verify_v39_app.py
+if errorlevel 1 goto :FAIL
+
+echo [19/19] Verifying v3.9 launch paths...
 ".venv\Scripts\python.exe" .\scripts\verify_v38_launch_paths.py
 if errorlevel 1 goto :FAIL
 
@@ -123,20 +127,22 @@ echo.
 echo ============================================================
 echo INSTALL COMPLETE
 
-echo HARU Mastering v3.8.1 설치 확인 완료
+echo HARU Mastering v3.9 설치 확인 완료
 echo 실행파일 확인:
-echo Suno15_Mastering_v3_8_1.pyw
+echo Suno15_Mastering_v3_9.pyw
 echo RUN.bat 연결 확인:
 echo OK
 echo legacy 직접실행 보호:
 echo OK
 echo Final WAV names keep the original title without _MASTER suffix.
-echo Fullness Engine adds warmth, harmonic density and body without raising target LUFS.
+echo CHANNEL and GENRE are separated, then combined with SOUND MODE for mastering.
+echo Fast Fullness Engine adds warmth, harmonic density and body without raising target LUFS.
 echo Codec safety uses lower-ceiling rerenders to preserve loudness.
 echo Final LUFS, dBTP and LRA are synchronized from the actual MASTER WAV.
-echo v3.8.1 CSV columns are guaranteed in both root and 03_REPORT copies.
-echo OLD POP, Korean/Japanese Senior, Showa, Enka, K-POP, Kids Pop and more are available.
-echo Use RUN.bat or START_HERE.bat. Direct legacy execution redirects to v3.8.
+echo v3.9 CSV columns are guaranteed in both root and 03_REPORT copies.
+echo Old Pop Lounge, Korean Senior, Japanese Senior and Tokyo Chill are channel presets.
+echo K-POP, Jazz, Ballad, Oldies and more are pure music genres.
+echo Use RUN.bat or START_HERE.bat. Direct legacy execution redirects to v3.9.
 echo Use only WAV files inside 01_RELEASE_READY after completion.
 echo ============================================================
 echo.

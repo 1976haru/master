@@ -34,8 +34,8 @@ def _write_test_wav(path: Path, *, amplitude: float = 0.12) -> None:
 
 def main() -> int:
     app = load_app()
-    assert app.APP_NAME == "HARU / SUNO 15-SET MASTERING v3.8.1"
-    assert app.SYNC_VERSION == "v3.8.1"
+    assert app.APP_NAME == "HARU / SUNO 15-SET MASTERING v3.9"
+    assert app.SYNC_VERSION == "v3.9"
 
     with tempfile.TemporaryDirectory() as tmp:
         out = Path(tmp)
@@ -88,10 +88,10 @@ def main() -> int:
             assert row["final_LUFS"] not in {"", "stale"}
             assert row["final_dBTP"] not in {"", "stale"}
             assert row["final_LRA"] not in {"", "stale"}
-            assert row["app_version"] == "v3.8.1"
-            assert row["final_metrics_sync_version"] == "v3.8.1"
+            assert row["app_version"] == "v3.9"
+            assert row["final_metrics_sync_version"] == "v3.9"
 
-    print("[PASS] HARU Mastering v3.8.1 filename cleanup is ready")
+    print("[PASS] HARU Mastering v3.8.1 filename cleanup adapter follows v3.9 versioning")
     print("Final WAV names: original stem + .wav")
     print("RELEASE_READY lookup: suffixless")
     print("NEEDS_REVIEW lookup: suffixless")

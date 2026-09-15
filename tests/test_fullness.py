@@ -4,7 +4,15 @@ import numpy as np
 import soundfile as sf
 
 from haru_mastering.analysis import analyze_file
-from haru_mastering.fullness import decide, default_fullness_mode, process
+from haru_mastering.fullness import (
+    FullnessDecision,
+    MAX_FULLNESS_RENDER_PASSES,
+    decide,
+    default_fullness_mode,
+    process,
+    reduce_decision_for_guard_reasons,
+    retry_strength_for_guard_reasons,
+)
 
 
 def _thin_old_pop_like(sr: int, seconds: int) -> np.ndarray:
@@ -74,3 +82,56 @@ def test_natural_mode_is_audio_copy(tmp_path):
     original, _ = sf.read(src, always_2d=True, dtype="float64")
 
     np.testing.assert_allclose(copied, original, atol=0.0)
+
+
+def test_process_reuses_source_metrics_for_natural_copy(tmp_path, monkeypatch):
+    sr = 48000
+    src = tmp_path / "source.wav"
+    dst = tmp_path / "copy.wav"
+    audio = _thin_old_pop_like(sr, 2)
+    sf.write(src, audio, sr, subtype="PCM_24")
+    metrics = analyze_file(src)
+    decision = decide(metrics, genre_key="OLD POP", mode="NATURAL")
+
+    calls = {"count": 0}
+
+    def counted_analyze_file(*args, **kwargs):
+        calls["count"] += 1
+        return analyze_file(*args, **kwargs)
+
+    monkeypatch.setattr("haru_mastering.fullness.analyze_file", counted_analyze_file)
+
+    render = process(src, dst, decision, source_metrics=metrics)
+
+    assert calls["count"] == 0
+    assert render.before is metrics
+    assert render.after is metrics
+
+
+def test_fast_fullness_engine_limits_render_passes():
+    assert MAX_FULLNESS_RENDER_PASSES == 2
+
+
+def test_retry_strength_is_selected_from_failure_reason():
+    assert retry_strength_for_guard_reasons(("DYNAMICS RISK: LRA reduced 1.2 LU",)) == 60
+    assert retry_strength_for_guard_reasons(("crest loss 1.0 dB",)) == 50
+    assert retry_strength_for_guard_reasons(("codec preview unsafe: -1.20 dBTP",)) == 100
+
+
+def test_low_band_retry_reduces_body_bands_directly():
+    original = FullnessDecision(
+        mode="RICH",
+        strength_percent=100,
+        warmth_gain_db=0.8,
+        body_gain_db=0.5,
+        saturation_wet_percent=6.0,
+        density_wet_percent=5.0,
+    )
+    reduced = reduce_decision_for_guard_reasons(
+        original,
+        ("low-band stereo correlation too low: 0.650 below 110 Hz",),
+    )
+
+    assert reduced.strength_percent == 60
+    assert reduced.warmth_gain_db < original.warmth_gain_db * 0.60
+    assert reduced.body_gain_db < original.body_gain_db * 0.60
