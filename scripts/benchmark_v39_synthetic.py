@@ -16,6 +16,11 @@ from haru_mastering.analysis import analyze_array, analyze_file
 from haru_mastering.fullness import decide as decide_fullness
 from haru_mastering.fullness import process as process_fullness
 from haru_mastering.fullness import reduce_decision_for_guard_reasons
+from haru_mastering.retry_policy import (
+    build_track_retry_policy,
+    classify_dynamics_origin,
+    dynamics_stats,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -117,23 +122,28 @@ def _benchmark_v39(app, source: Path, base: Path, destination: Path) -> dict:
     render_sec = time.perf_counter() - start
 
     start = time.perf_counter()
-    base_metrics = analyze_file(base)
+    base_audio, base_sr = sf.read(base, always_2d=True, dtype="float64")
+    base_metrics = analyze_array(base_audio, base_sr)
     decision = decide_fullness(base_metrics, genre_key=key, mode="RICH", profile=profile)
     fullness_analysis_sec = time.perf_counter() - start
 
     fullness_render_count = 0
     fullness_render_sec = 0.0
     quality_gate_sec = 0.0
+    quality_gate_count = 0
     result = None
     reasons: list[str] = []
     for attempt in range(2):
         start = time.perf_counter()
-        process_fullness(
+        render = process_fullness(
             base,
             destination,
             decision,
             source_metrics=base_metrics,
-            analyze_after=False,
+            source_audio=base_audio,
+            source_sample_rate=base_sr,
+            analyze_after=True,
+            return_audio=True,
         )
         fullness_render_sec += time.perf_counter() - start
         fullness_render_count += 1
@@ -146,8 +156,12 @@ def _benchmark_v39(app, source: Path, base: Path, destination: Path) -> dict:
             source_audio=source_audio,
             source_sample_rate=source_sr,
             source_metrics=source_metrics,
+            processed_audio=render.processed_audio,
+            processed_sample_rate=render.processed_sample_rate,
+            processed_metrics=render.after,
         )
         quality_gate_sec += time.perf_counter() - start
+        quality_gate_count += 1
         reasons = list(result.issues)
         if not reasons:
             break
@@ -164,8 +178,12 @@ def _benchmark_v39(app, source: Path, base: Path, destination: Path) -> dict:
             source_audio=source_audio,
             source_sample_rate=source_sr,
             source_metrics=source_metrics,
+            processed_audio=base_audio,
+            processed_sample_rate=base_sr,
+            processed_metrics=base_metrics,
         )
         quality_gate_sec += time.perf_counter() - start
+        quality_gate_count += 1
 
     codec_sec, codec_safe = _codec_once(app, destination, profile)
     total = render_sec + fullness_analysis_sec + fullness_render_sec + quality_gate_sec + codec_sec
@@ -176,10 +194,85 @@ def _benchmark_v39(app, source: Path, base: Path, destination: Path) -> dict:
         "fullness_render_sec": fullness_render_sec,
         "fullness_render_count": fullness_render_count,
         "quality_gate_sec": quality_gate_sec,
+        "quality_gate_count": quality_gate_count,
         "codec_sec": codec_sec,
+        "codec_check_count": 1,
         "total_sec": total,
         "status": result.status if result is not None else "UNKNOWN",
         "codec_safe": codec_safe,
+    }
+
+
+def _metric_like(*, lra: float, crest: float, true_peak: float = -1.4):
+    from haru_mastering.analysis import AudioMetrics
+
+    return AudioMetrics(
+        sample_rate_hz=48000,
+        channels=2,
+        frames=48000 * 180,
+        duration_seconds=180.0,
+        lufs_i=-14.0,
+        lra_lu=lra,
+        sample_peak_dbfs=true_peak,
+        true_peak_dbtp=true_peak,
+        rms_dbfs=-18.0,
+        crest_factor_db=crest,
+        dc_offset=(0.0, 0.0),
+        clipped_sample_count=0,
+        stereo_correlation=0.95,
+        side_to_mid_db=-18.0,
+        leading_silence_ms=0.0,
+        trailing_silence_ms=500.0,
+        band_energy_db={},
+    )
+
+
+def _benchmark_v39_dynamics_fixture() -> dict:
+    start = time.perf_counter()
+    gate = {
+        "maximum_lra_reduction_lu": 0.80,
+        "minimum_final_lra_lu": 3.50,
+        "maximum_crest_factor_loss_db": 0.75,
+    }
+    source = _metric_like(lra=4.60, crest=9.0)
+    base = _metric_like(lra=4.25, crest=8.8)
+    final_100 = _metric_like(lra=3.45, crest=8.7, true_peak=-1.01)
+    final_60 = _metric_like(lra=3.95, crest=8.8, true_peak=-1.22)
+    policy = build_track_retry_policy(
+        mode="QUALITY+",
+        resolved_maximum_auto_rerenders=4,
+        max_fullness_render_passes=2,
+    )
+    origin = classify_dynamics_origin(source=source, base=base, final=final_100, gate_kwargs=gate)
+    candidate_metrics = {100: final_100, 60: final_60}
+    strength = 100
+    fullness_render_count = 0
+    quality_gate_count = 0
+    retry_passes = False
+    while fullness_render_count < policy.fullness_render_limit:
+        fullness_render_count += 1
+        quality_gate_count += 1
+        candidate = candidate_metrics[strength]
+        if not dynamics_stats(source, candidate, gate).risky:
+            retry_passes = True
+            break
+        if strength == 100:
+            strength = 60
+        else:
+            break
+    elapsed = time.perf_counter() - start
+    return {
+        "fixture": "Tokyo Chill + Chill Rap dynamics risk",
+        "elapsed_sec": elapsed,
+        "dynamics_origin": origin,
+        "first_strength_percent": 100,
+        "retry_strength_percent": 60,
+        "retry_passes": retry_passes,
+        "base_render_count": 1,
+        "fullness_render_count": fullness_render_count,
+        "quality_gate_count": quality_gate_count,
+        "codec_check_count": 1,
+        "transparent_render_count": 0,
     }
 
 
@@ -198,11 +291,13 @@ def main() -> int:
         _write_synthetic(source, seconds)
         old = _benchmark_v372(v372, source, work / "v372.wav")
         new = _benchmark_v39(v39, source, work / "v39_base.wav", work / "v39.wav")
+        dynamics_fixture = _benchmark_v39_dynamics_fixture()
 
     payload = {
         "synthetic_seconds": seconds,
         "baseline": old,
         "latest": new,
+        "dynamics_risk_fixture": dynamics_fixture,
         "speedup_ratio": (
             old["total_sec"] / new["total_sec"] if new["total_sec"] > 0 else None
         ),

@@ -38,7 +38,7 @@ v32 = v38.v32
 v2 = v38.v2
 legacy = v38.legacy
 
-from haru_mastering.analysis import AudioMetrics, analyze_array, analyze_file
+from haru_mastering.analysis import AudioMetrics, analyze_array
 from haru_mastering.auto_finish import organize_release_files, write_beginner_summary
 from haru_mastering.filenames import final_output_name
 from haru_mastering.fullness import (
@@ -64,6 +64,12 @@ from haru_mastering.profile_catalog import (
     normalize_genre_key,
 )
 from haru_mastering.report import write_quality_reports
+from haru_mastering.retry_policy import (
+    build_track_retry_policy,
+    dynamics_stats,
+    performance_level,
+    slowest_stage,
+)
 from haru_mastering.version import APP_TITLE, DISPLAY_VERSION, REPORT_VERSION, VERSION
 import haru_mastering.report as report_module
 
@@ -74,6 +80,17 @@ LOUDNESS_TOLERANCE_LU = float(v372.LOUDNESS_TOLERANCE_LU)
 
 _COMPOSITE_RUNTIME_PROFILES: dict[str, dict] = {}
 _BASE_GET_PROFILE_V39 = v2.get_profile
+_BASE_PROFILE_PAYLOAD_V39 = v371._ORIGINAL_PROFILE_PAYLOAD
+
+
+def _runtime_profile_payload_v39():
+    """Keep the configured Dynamics limit separate from the v3.7.1 Codec cap."""
+    payload = v371._runtime_profile_payload()
+    configured = _BASE_PROFILE_PAYLOAD_V39()
+    configured_auto = configured.get("global", {}).get("autoFinish", {})
+    auto = payload["global"].setdefault("autoFinish", {})
+    auto["maximumAutoRerenders"] = int(configured_auto.get("maximumAutoRerenders", 2))
+    return payload
 
 
 @dataclass
@@ -96,6 +113,25 @@ class SourceContext:
 
 
 @dataclass
+class AudioContext:
+    audio: object
+    sample_rate: int
+    metrics: AudioMetrics
+
+
+@dataclass
+class TrackCounters:
+    base_render_count: int = 0
+    transparent_render_count: int = 0
+    codec_ceiling_rerender_count: int = 0
+    fullness_render_count: int = 0
+    quality_gate_count: int = 0
+    quality_gate_limit: int = 3
+    codec_check_count: int = 0
+    fullness_render_limit: int = 2
+
+
+@dataclass
 class CandidateFinish:
     ok: bool
     error: str
@@ -104,6 +140,7 @@ class CandidateFinish:
     timings: TrackTiming
     fullness_render_count: int
     last_reasons: list[str]
+    recommended_fullness_strength: int | None = None
 
 
 def _get_profile_v39(genre_key: str):
@@ -115,6 +152,7 @@ def _get_profile_v39(genre_key: str):
 
 def install_v39_runtime() -> None:
     v38.install_v38_runtime()
+    v32.v3._profile_payload = _runtime_profile_payload_v39
     v2.get_profile = _get_profile_v39
     report_module.QUALITY_REPORT_VERSION = REPORT_VERSION
     v38.report_module.QUALITY_REPORT_VERSION = REPORT_VERSION
@@ -424,13 +462,29 @@ class AppV39(v38.AppV38):
         self._source_analyze_count += 1
         return SourceContext(audio=audio, sample_rate=sample_rate, metrics=metrics, raw=_metrics_as_raw(metrics))
 
+    def _audio_context(self, path: Path) -> AudioContext:
+        audio, sample_rate = sf.read(path, always_2d=True, dtype="float64")
+        metrics = analyze_array(audio, sample_rate)
+        return AudioContext(audio=audio, sample_rate=sample_rate, metrics=metrics)
+
     def _evaluate_candidate(
         self,
         source: Path,
         candidate: Path,
         gate_kwargs: dict,
         source_ctx: SourceContext,
+        counters: TrackCounters,
+        *,
+        processed_audio=None,
+        processed_sample_rate: int | None = None,
+        processed_metrics: AudioMetrics | None = None,
     ):
+        if counters.quality_gate_count >= counters.quality_gate_limit:
+            raise RuntimeError(
+                f"Quality Gate call count exceeded track limit "
+                f"({counters.quality_gate_count}/{counters.quality_gate_limit})"
+            )
+        counters.quality_gate_count += 1
         return v32.evaluate_master(
             source,
             candidate,
@@ -438,6 +492,9 @@ class AppV39(v38.AppV38):
             source_audio=source_ctx.audio,
             source_sample_rate=source_ctx.sample_rate,
             source_metrics=source_ctx.metrics,
+            processed_audio=processed_audio,
+            processed_sample_rate=processed_sample_rate,
+            processed_metrics=processed_metrics,
         )
 
     def _metadata_from_decision(
@@ -482,19 +539,29 @@ class AppV39(v38.AppV38):
         base: Path,
         dst: Path,
         decision: FullnessDecision,
-        base_metrics: AudioMetrics,
+        base_ctx: AudioContext,
         timing: TrackTiming,
+        counters: TrackCounters,
     ):
+        if counters.fullness_render_count >= counters.fullness_render_limit:
+            raise RuntimeError(
+                f"Fullness render count exceeded track limit "
+                f"({counters.fullness_render_count}/{counters.fullness_render_limit})"
+            )
         start = time.perf_counter()
         render = process_fullness(
             base,
             dst,
             decision,
-            source_metrics=base_metrics,
-            analyze_after=False,
+            source_metrics=base_ctx.metrics,
+            source_audio=base_ctx.audio,
+            source_sample_rate=base_ctx.sample_rate,
+            analyze_after=True,
+            return_audio=True,
         )
         timing.fullness_render += time.perf_counter() - start
         self._fullness_render_count += 1
+        counters.fullness_render_count += 1
         return render
 
     def _finish_candidate(
@@ -507,17 +574,53 @@ class AppV39(v38.AppV38):
         auto_cfg: dict,
         profile: dict,
         source_ctx: SourceContext,
+        base_ctx: AudioContext,
         fixes: list[str],
+        counters: TrackCounters,
         *,
         max_fullness_passes: int,
+        track_index: int,
+        track_total: int,
+        initial_strength: int | None = None,
         force_natural: bool = False,
+        defer_dynamics_fallback: bool = False,
     ) -> CandidateFinish:
         timing = TrackTiming()
         track = source.name
         sound_mode = "NATURAL" if force_natural else self._fullness_mode(mastering_key)
-        start = time.perf_counter()
-        base_metrics = analyze_file(base)
-        timing.fullness_analysis += time.perf_counter() - start
+        base_metrics = base_ctx.metrics
+
+        def evaluate_with_optional_cache(
+            *,
+            tail_repair,
+            processed_audio=None,
+            processed_sample_rate: int | None = None,
+            processed_metrics: AudioMetrics | None = None,
+        ):
+            if getattr(tail_repair, "mode", "none") != "none":
+                processed_audio = None
+                processed_sample_rate = None
+                processed_metrics = None
+            start_qg = time.perf_counter()
+            evaluated = self._evaluate_candidate(
+                source,
+                dst,
+                gate_kwargs,
+                source_ctx,
+                counters,
+                processed_audio=processed_audio,
+                processed_sample_rate=processed_sample_rate,
+                processed_metrics=processed_metrics,
+            )
+            elapsed = time.perf_counter() - start_qg
+            timing.quality_gate += elapsed
+            self._stage_log(
+                track_index,
+                track_total,
+                f"Quality Gate #{counters.quality_gate_count}",
+                elapsed,
+            )
+            return evaluated
 
         if sound_mode != "RICH":
             decision = self._fullness_decision(
@@ -529,35 +632,65 @@ class AppV39(v38.AppV38):
             )
             shutil.copy2(base, dst)
             tail_repair = self._repair_tail(dst, auto_cfg, fixes)
-            start = time.perf_counter()
-            result = self._evaluate_candidate(source, dst, gate_kwargs, source_ctx)
-            timing.quality_gate += time.perf_counter() - start
+            result = evaluate_with_optional_cache(
+                tail_repair=tail_repair,
+                processed_audio=base_ctx.audio,
+                processed_sample_rate=base_ctx.sample_rate,
+                processed_metrics=base_metrics,
+            )
             self._fullness_metadata[track] = self._metadata_from_decision(
                 decision,
                 retry_count=0,
                 auto_reduced=False,
                 bypassed_reason="natural_mode" if not force_natural else "transparent_fallback",
             )
-            return CandidateFinish(True, "", result, tail_repair, timing, 0, list(result.issues))
+            return CandidateFinish(True, "", result, tail_repair, timing, 0, list(result.issues), None)
 
+        default_strength = int(profile.get("fullness", {}).get("defaultStrengthPercent", 100))
         initial = self._fullness_decision(
             base_metrics,
             mastering_key,
             profile,
             mode="RICH",
-            strength_percent=int(profile.get("fullness", {}).get("defaultStrengthPercent", 100)),
+            strength_percent=default_strength if initial_strength is None else int(initial_strength),
         )
         decision = initial
         last_reasons: list[str] = []
         render_count = 0
+        recommended_strength = initial.strength_percent
+        allowed_passes = max(
+            0,
+            min(
+                int(max_fullness_passes),
+                MAX_FULLNESS_RENDER_PASSES,
+                counters.fullness_render_limit - counters.fullness_render_count,
+            ),
+        )
 
-        for pass_index in range(max(1, min(int(max_fullness_passes), MAX_FULLNESS_RENDER_PASSES))):
-            render = self._render_fullness_candidate(base, dst, decision, base_metrics, timing)
+        for pass_index in range(allowed_passes):
+            before_render = timing.fullness_render
+            render = self._render_fullness_candidate(base, dst, decision, base_ctx, timing, counters)
+            render_seconds = timing.fullness_render - before_render
             render_count += 1
+            label = f"Fullness {render.decision.strength_percent}%"
+            if pass_index > 0 or (
+                initial_strength is not None and initial_strength != default_strength
+            ):
+                label += " rerender"
+            self._stage_log(track_index, track_total, label, render_seconds)
+            self.after(
+                0,
+                self.append_log,
+                f"    Fullness render count: "
+                f"{counters.fullness_render_count}/{counters.fullness_render_limit}",
+            )
             tail_repair = self._repair_tail(dst, auto_cfg, fixes)
-            start = time.perf_counter()
-            result = self._evaluate_candidate(source, dst, gate_kwargs, source_ctx)
-            timing.quality_gate += time.perf_counter() - start
+            result = evaluate_with_optional_cache(
+                tail_repair=tail_repair,
+                processed_audio=render.processed_audio,
+                processed_sample_rate=render.processed_sample_rate,
+                processed_metrics=render.after,
+            )
             reasons = list(result.issues)
             if not reasons:
                 self._fullness_metadata[track] = self._metadata_from_decision(
@@ -566,17 +699,69 @@ class AppV39(v38.AppV38):
                     auto_reduced=pass_index > 0,
                     bypassed_reason="",
                 )
-                return CandidateFinish(True, "", result, tail_repair, timing, render_count, [])
+                return CandidateFinish(
+                    True,
+                    "",
+                    result,
+                    tail_repair,
+                    timing,
+                    render_count,
+                    [],
+                    recommended_strength,
+                )
 
             last_reasons = reasons
-            if pass_index + 1 >= MAX_FULLNESS_RENDER_PASSES or pass_index + 1 >= max_fullness_passes:
+            if _has_issue(result, "DYNAMICS RISK"):
+                base_stats = dynamics_stats(source_ctx.metrics, base_metrics, gate_kwargs)
+                final_stats = dynamics_stats(source_ctx.metrics, result.processed, gate_kwargs)
+                self.after(
+                    0,
+                    self.append_log,
+                    "    Dynamics origin: Fullness",
+                )
+                self.after(
+                    0,
+                    self.append_log,
+                    f"    Base LRA loss: {base_stats.lra_reduction_lu:.2f} LU / "
+                    f"crest loss: {base_stats.crest_factor_loss_db:.2f} dB",
+                )
+                self.after(
+                    0,
+                    self.append_log,
+                    f"    Final LRA loss: {final_stats.lra_reduction_lu:.2f} LU / "
+                    f"crest loss: {final_stats.crest_factor_loss_db:.2f} dB",
+                )
+            if pass_index + 1 >= allowed_passes:
                 break
             decision = reduce_decision_for_guard_reasons(decision, reasons)
+            recommended_strength = decision.strength_percent
             self.after(
                 0,
                 self.append_log,
                 f"    Fullness guard: {render.decision.strength_percent}% -> "
                 f"{decision.strength_percent}% ({' / '.join(reasons)[:160]})",
+            )
+
+        if (
+            defer_dynamics_fallback
+            and result is not None
+            and _has_issue(result, "DYNAMICS RISK")
+        ):
+            self._fullness_metadata[track] = self._metadata_from_decision(
+                decision,
+                retry_count=render_count,
+                auto_reduced=render_count > 1,
+                bypassed_reason="dynamics_fallback_pending",
+            )
+            return CandidateFinish(
+                False,
+                " / ".join(last_reasons),
+                result,
+                tail_repair,
+                timing,
+                render_count,
+                last_reasons,
+                recommended_strength,
             )
 
         fallback = self._fullness_decision(
@@ -588,16 +773,28 @@ class AppV39(v38.AppV38):
         )
         shutil.copy2(base, dst)
         tail_repair = self._repair_tail(dst, auto_cfg, fixes)
-        start = time.perf_counter()
-        result = self._evaluate_candidate(source, dst, gate_kwargs, source_ctx)
-        timing.quality_gate += time.perf_counter() - start
+        result = evaluate_with_optional_cache(
+            tail_repair=tail_repair,
+            processed_audio=base_ctx.audio,
+            processed_sample_rate=base_ctx.sample_rate,
+            processed_metrics=base_metrics,
+        )
         self._fullness_metadata[track] = self._metadata_from_decision(
             fallback,
             retry_count=render_count,
             auto_reduced=render_count > 0,
             bypassed_reason=" / ".join(last_reasons) if last_reasons else "guard_reduced_to_off",
         )
-        return CandidateFinish(True, "", result, tail_repair, timing, render_count, last_reasons)
+        return CandidateFinish(
+            True,
+            "",
+            result,
+            tail_repair,
+            timing,
+            render_count,
+            last_reasons,
+            recommended_strength,
+        )
 
     def _render_base(self, source: Path, base: Path, mastering_key: str, factor: float, mode: str):
         if mode == "QUALITY+":
@@ -657,12 +854,19 @@ class AppV39(v38.AppV38):
         self.last_output_dir = out_dir
 
         gate_kwargs, auto_cfg, profile = v32._settings(mastering_key)
-        max_retries = int(auto_cfg.get("maximumAutoRerenders", 2)) if mode == "QUALITY+" else 0
+        resolved_maximum_auto_rerenders = (
+            int(auto_cfg.get("maximumAutoRerenders", 2)) if mode == "QUALITY+" else 0
+        )
+        policy = build_track_retry_policy(
+            mode=mode,
+            resolved_maximum_auto_rerenders=resolved_maximum_auto_rerenders,
+            max_fullness_render_passes=MAX_FULLNESS_RENDER_PASSES,
+        )
         transparent_enabled = bool(auto_cfg.get("transparentFallbackEnabled", True)) and mode == "QUALITY+"
         codec_enabled = bool(auto_cfg.get("codecPreviewEnabled", True))
         codec_tolerance = float(auto_cfg.get("codecTruePeakSafetyMarginDb", 0.05))
         codec_step = float(auto_cfg.get("codecCeilingStepDb", 0.20))
-        fullness_passes = 2 if mode == "QUALITY+" else 1
+        fullness_passes = policy.fullness_render_limit
 
         rows = []
         gate_results = []
@@ -677,6 +881,12 @@ class AppV39(v38.AppV38):
         self.after(0, self.append_log, f"채널: {channel.label}")
         self.after(0, self.append_log, f"장르: {genre.label}")
         self.after(0, self.append_log, f"사운드: {'풍부함+' if self._fullness_mode() == 'RICH' else '자연스러움'} / 모드: {mode}")
+        self.after(0, self.append_log, "[Settings]")
+        self.after(0, self.append_log, f"maximumAutoRerenders = {resolved_maximum_auto_rerenders}")
+        self.after(0, self.append_log, f"dynamicsBaseRerenders = {policy.dynamics_base_rerenders}")
+        self.after(0, self.append_log, f"fullness_passes = {fullness_passes}")
+        self.after(0, self.append_log, f"codecMaximumAutoRerenders = {policy.codec_maximum_auto_rerenders}")
+        self.after(0, self.append_log, f"profile = {channel.label} + {genre.label}")
         self.after(0, self.append_log, "-" * 64)
 
         try:
@@ -685,11 +895,11 @@ class AppV39(v38.AppV38):
                 track_timing = TrackTiming()
                 self.after(0, self.append_log, f"[{idx:02d}/{total:02d}] {src.name}")
 
-                self._stage_status(idx, total, "분석 중", src)
+                self._stage_status(idx, total, "analysis", src)
                 start = time.perf_counter()
                 source_ctx = self._source_context(src)
                 track_timing.analysis = time.perf_counter() - start
-                self._stage_log(idx, total, "분석", track_timing.analysis)
+                self._stage_log(idx, total, "analysis", track_timing.analysis)
 
                 raw_lra = legacy.safe_float(source_ctx.raw.get("input_lra"))
                 factor = legacy.adaptive_factor(raw_lra) if mode == "QUALITY+" else 1.0
@@ -706,63 +916,92 @@ class AppV39(v38.AppV38):
                 processing_mode = "normal"
                 candidate = None
 
-                for attempt in range(max_retries + 1):
-                    legacy.GENRES[mastering_key]["target_tp"] = current_tp
-                    self._stage_status(idx, total, "기본 마스터링 중", src)
+                counters = TrackCounters(
+                    fullness_render_limit=policy.fullness_render_limit,
+                    quality_gate_limit=max(3, policy.quality_gate_transparent_limit),
+                )
+                recommended_fullness_strength = None
+                base_ctx = None
+
+                legacy.GENRES[mastering_key]["target_tp"] = current_tp
+                self._stage_status(idx, total, "base mastering", src)
+                start = time.perf_counter()
+                render_ok, render_err = self._render_base(src, base, mastering_key, factor, mode)
+                counters.base_render_count += 1
+                base_seconds = time.perf_counter() - start
+                track_timing.base_mastering += base_seconds
+                self._stage_log(idx, total, "base mastering", base_seconds)
+
+                if render_ok and base.exists():
+                    self._stage_status(idx, total, "Fullness analysis", src)
                     start = time.perf_counter()
-                    render_ok, render_err = self._render_base(src, base, mastering_key, factor, mode)
-                    base_seconds = time.perf_counter() - start
-                    track_timing.base_mastering += base_seconds
-                    self._stage_log(idx, total, "기본 마스터링", base_seconds)
-                    if not render_ok or not base.exists():
-                        break
+                    base_ctx = self._audio_context(base)
+                    analysis_seconds = time.perf_counter() - start
+                    track_timing.fullness_analysis += analysis_seconds
+                    self._stage_log(idx, total, "Fullness analysis", analysis_seconds)
 
-                    self._stage_status(idx, total, "풍부함 처리 중", src)
-                    candidate = self._finish_candidate(
-                        src,
-                        base,
-                        dst,
-                        mastering_key,
-                        gate_kwargs,
-                        auto_cfg,
-                        profile,
-                        source_ctx,
-                        fixes,
-                        max_fullness_passes=fullness_passes,
-                    )
-                    result = candidate.result
-                    tail_repair = candidate.tail_repair
-                    track_timing.fullness_analysis += candidate.timings.fullness_analysis
-                    track_timing.fullness_render += candidate.timings.fullness_render
-                    track_timing.quality_gate += candidate.timings.quality_gate
-                    self._stage_log(idx, total, "Fullness 분석", candidate.timings.fullness_analysis)
-                    self._stage_log(idx, total, "Fullness render", candidate.timings.fullness_render)
-                    self._stage_log(idx, total, "Quality Gate", candidate.timings.quality_gate)
+                    base_dynamics = dynamics_stats(source_ctx.metrics, base_ctx.metrics, gate_kwargs)
+                    if base_dynamics.risky:
+                        self.after(0, self.append_log, "    Dynamics origin: Base")
+                        self.after(
+                            0,
+                            self.append_log,
+                            f"    Base LRA loss: {base_dynamics.lra_reduction_lu:.2f} LU / "
+                            f"crest loss: {base_dynamics.crest_factor_loss_db:.2f} dB",
+                        )
 
-                    if result is not None and _has_issue(result, "DYNAMICS RISK") and attempt < max_retries:
-                        new_factor = max(0.30, factor * 0.65)
-                        if new_factor < factor - 0.01:
-                            factor = new_factor
-                            _append_unique(fixes, f"압축 자동 완화({factor:.2f})")
-                            self.after(0, self.append_log, f"    ↻ 다이내믹 보호 재마스터 {attempt + 1}/{max_retries}")
-                            continue
-                    break
-
-                if (
-                    render_ok
-                    and result is not None
-                    and _has_issue(result, "DYNAMICS RISK")
-                    and transparent_enabled
-                ):
-                    processing_mode = "transparent"
-                    self.after(0, self.append_log, "    ↻ 투명 마스터링 모드 - EQ/Compressor 우회")
-                    start = time.perf_counter()
-                    render_ok, render_err = self._render_transparent_base(src, base, mastering_key, auto_cfg)
-                    base_seconds = time.perf_counter() - start
-                    track_timing.base_mastering += base_seconds
-                    self._stage_log(idx, total, "투명 마스터링", base_seconds)
-                    if render_ok and base.exists():
-                        _append_unique(fixes, "투명 마스터링(EQ/Compressor 우회)")
+                    if base_dynamics.risky and transparent_enabled:
+                        processing_mode = "transparent"
+                        self.after(
+                            0,
+                            self.append_log,
+                            "    Transparent fallback: base dynamics risk",
+                        )
+                        start = time.perf_counter()
+                        render_ok, render_err = self._render_transparent_base(
+                            src,
+                            base,
+                            mastering_key,
+                            auto_cfg,
+                        )
+                        counters.transparent_render_count += 1
+                        base_seconds = time.perf_counter() - start
+                        track_timing.base_mastering += base_seconds
+                        self._stage_log(idx, total, "transparent mastering", base_seconds)
+                        if render_ok and base.exists():
+                            _append_unique(fixes, "transparent mastering (dynamics fallback)")
+                            start = time.perf_counter()
+                            base_ctx = self._audio_context(base)
+                            analysis_seconds = time.perf_counter() - start
+                            track_timing.fullness_analysis += analysis_seconds
+                            self._stage_log(idx, total, "transparent analysis", analysis_seconds)
+                            candidate = self._finish_candidate(
+                                src,
+                                base,
+                                dst,
+                                mastering_key,
+                                gate_kwargs,
+                                auto_cfg,
+                                profile,
+                                source_ctx,
+                                base_ctx,
+                                fixes,
+                                counters,
+                                max_fullness_passes=1,
+                                track_index=idx,
+                                track_total=total,
+                                force_natural=True,
+                            )
+                            result = candidate.result
+                            tail_repair = candidate.tail_repair
+                            track_timing.fullness_render += candidate.timings.fullness_render
+                            track_timing.quality_gate += candidate.timings.quality_gate
+                    else:
+                        if base_dynamics.risky:
+                            processing_mode = "base_natural"
+                            force_natural = True
+                        else:
+                            force_natural = False
                         candidate = self._finish_candidate(
                             src,
                             base,
@@ -772,19 +1011,68 @@ class AppV39(v38.AppV38):
                             auto_cfg,
                             profile,
                             source_ctx,
+                            base_ctx,
                             fixes,
+                            counters,
+                            max_fullness_passes=fullness_passes,
+                            track_index=idx,
+                            track_total=total,
+                            initial_strength=recommended_fullness_strength,
+                            force_natural=force_natural,
+                            defer_dynamics_fallback=transparent_enabled,
+                        )
+                        result = candidate.result
+                        tail_repair = candidate.tail_repair
+                        track_timing.fullness_render += candidate.timings.fullness_render
+                        track_timing.quality_gate += candidate.timings.quality_gate
+                        recommended_fullness_strength = candidate.recommended_fullness_strength
+
+                if (
+                    render_ok
+                    and result is not None
+                    and _has_issue(result, "DYNAMICS RISK")
+                    and transparent_enabled
+                    and processing_mode != "transparent"
+                ):
+                    processing_mode = "transparent"
+                    self.after(0, self.append_log, "    Transparent fallback: final dynamics risk")
+                    start = time.perf_counter()
+                    render_ok, render_err = self._render_transparent_base(src, base, mastering_key, auto_cfg)
+                    counters.transparent_render_count += 1
+                    base_seconds = time.perf_counter() - start
+                    track_timing.base_mastering += base_seconds
+                    self._stage_log(idx, total, "transparent mastering", base_seconds)
+                    if render_ok and base.exists():
+                        _append_unique(fixes, "transparent mastering (dynamics fallback)")
+                        start = time.perf_counter()
+                        base_ctx = self._audio_context(base)
+                        analysis_seconds = time.perf_counter() - start
+                        track_timing.fullness_analysis += analysis_seconds
+                        self._stage_log(idx, total, "transparent analysis", analysis_seconds)
+                        candidate = self._finish_candidate(
+                            src,
+                            base,
+                            dst,
+                            mastering_key,
+                            gate_kwargs,
+                            auto_cfg,
+                            profile,
+                            source_ctx,
+                            base_ctx,
+                            fixes,
+                            counters,
                             max_fullness_passes=1,
+                            track_index=idx,
+                            track_total=total,
                             force_natural=True,
                         )
                         result = candidate.result
                         tail_repair = candidate.tail_repair
-                        track_timing.fullness_analysis += candidate.timings.fullness_analysis
                         track_timing.fullness_render += candidate.timings.fullness_render
                         track_timing.quality_gate += candidate.timings.quality_gate
-
                 if render_ok and result is not None and result.status == "PASS" and codec_enabled:
-                    self._stage_status(idx, total, "코덱 안전검사 중", src)
-                    codec_attempt_limit = max_retries if mode == "QUALITY+" else 0
+                    self._stage_status(idx, total, "codec safety check", src)
+                    codec_attempt_limit = policy.codec_maximum_auto_rerenders if mode == "QUALITY+" else 0
                     for codec_attempt in range(codec_attempt_limit + 1):
                         start = time.perf_counter()
                         try:
@@ -800,9 +1088,11 @@ class AppV39(v38.AppV38):
                             codec_error = f"codec verification failed: {exc}"
                             track_timing.codec_preview += time.perf_counter() - start
                             self._codec_preview_count += 1
+                            counters.codec_check_count += 1
                             break
                         track_timing.codec_preview += time.perf_counter() - start
                         self._codec_preview_count += 1
+                        counters.codec_check_count += 1
                         if codec_result.safe:
                             break
                         if codec_attempt >= codec_attempt_limit:
@@ -814,12 +1104,20 @@ class AppV39(v38.AppV38):
                         start = time.perf_counter()
                         if processing_mode == "transparent":
                             render_ok, render_err = self._render_transparent_base(src, base, mastering_key, auto_cfg)
+                            counters.transparent_render_count += 1
                         else:
                             render_ok, render_err = self._render_base(src, base, mastering_key, factor, mode)
+                            counters.codec_ceiling_rerender_count += 1
                         base_seconds = time.perf_counter() - start
                         track_timing.base_mastering += base_seconds
+                        self._stage_log(idx, total, "codec ceiling rerender", base_seconds)
                         if not render_ok or not base.exists():
                             break
+                        start = time.perf_counter()
+                        base_ctx = self._audio_context(base)
+                        analysis_seconds = time.perf_counter() - start
+                        track_timing.fullness_analysis += analysis_seconds
+                        self._stage_log(idx, total, "codec rerender analysis", analysis_seconds)
                         candidate = self._finish_candidate(
                             src,
                             base,
@@ -829,15 +1127,20 @@ class AppV39(v38.AppV38):
                             auto_cfg,
                             profile,
                             source_ctx,
+                            base_ctx,
                             fixes,
+                            counters,
                             max_fullness_passes=1,
+                            track_index=idx,
+                            track_total=total,
+                            initial_strength=recommended_fullness_strength,
                             force_natural=(processing_mode == "transparent"),
                         )
                         result = candidate.result
                         tail_repair = candidate.tail_repair
-                        track_timing.fullness_analysis += candidate.timings.fullness_analysis
                         track_timing.fullness_render += candidate.timings.fullness_render
                         track_timing.quality_gate += candidate.timings.quality_gate
+                        recommended_fullness_strength = candidate.recommended_fullness_strength
                         if result is None or result.status != "PASS":
                             break
                     self._stage_log(idx, total, "Codec Preview", track_timing.codec_preview)
@@ -911,10 +1214,71 @@ class AppV39(v38.AppV38):
                         "stage_fullness_render_sec": f"{track_timing.fullness_render:.1f}",
                         "stage_quality_gate_sec": f"{track_timing.quality_gate:.1f}",
                         "stage_codec_preview_sec": f"{track_timing.codec_preview:.1f}",
+                        "base_render_count": str(counters.base_render_count),
+                        "transparent_render_count": str(counters.transparent_render_count),
+                        "codec_ceiling_rerender_count": str(counters.codec_ceiling_rerender_count),
+                        "fullness_render_count": str(counters.fullness_render_count),
+                        "quality_gate_count": str(counters.quality_gate_count),
+                        "codec_check_count": str(counters.codec_check_count),
                         "notes": notes,
                     }
                 )
                 track_timing.total = time.perf_counter() - track_start
+                self.after(
+                    0,
+                    self.append_log,
+                    f"    Fullness renders: {counters.fullness_render_count}",
+                )
+                self.after(
+                    0,
+                    self.append_log,
+                    f"    Base renders: {counters.base_render_count}",
+                )
+                self.after(
+                    0,
+                    self.append_log,
+                    f"    Transparent renders: {counters.transparent_render_count}",
+                )
+                self.after(
+                    0,
+                    self.append_log,
+                    f"    Codec ceiling rerenders: {counters.codec_ceiling_rerender_count}",
+                )
+                self.after(
+                    0,
+                    self.append_log,
+                    f"    Quality Gate calls: {counters.quality_gate_count}",
+                )
+                self.after(
+                    0,
+                    self.append_log,
+                    f"    Codec checks: {counters.codec_check_count}",
+                )
+                perf_level = performance_level(track_timing.total)
+                if perf_level:
+                    slow_name, slow_seconds = slowest_stage(
+                        {
+                            "analysis": track_timing.analysis,
+                            "base mastering": track_timing.base_mastering,
+                            "Fullness analysis": track_timing.fullness_analysis,
+                            "Fullness render": track_timing.fullness_render,
+                            "Quality Gate": track_timing.quality_gate,
+                            "Codec Preview": track_timing.codec_preview,
+                        }
+                    )
+                    label = "성능 오류" if perf_level == "error" else "성능 경고"
+                    limit_seconds = 240 if perf_level == "error" else 120
+                    self.after(
+                        0,
+                        self.append_log,
+                        f"[{label}] {idx:02d}번 곡 처리 시간이 {limit_seconds}초를 "
+                        f"초과했습니다. 실제: {track_timing.total:.1f}초",
+                    )
+                    self.after(
+                        0,
+                        self.append_log,
+                        f"    가장 느린 단계: {slow_name} {slow_seconds:.1f} sec",
+                    )
                 self.after(0, self.append_log, f"[{idx:02d}/{total:02d}] 완료: {track_timing.total:.1f} sec")
                 icon = "PASS" if status == "PASS" else "REVIEW"
                 fix_text = f" | 자동수정: {', '.join(fixes)}" if fixes else ""

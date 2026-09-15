@@ -31,3 +31,27 @@ def test_v39_is_latest_launcher_target():
     assert run.find("Suno15_Mastering_v3_9.pyw") < run.find("Suno15_Mastering_v3_8_1.pyw")
     assert legacy.find("Suno15_Mastering_v3_9.pyw") < legacy.find("Suno15_Mastering_v3_8_1.pyw")
 
+
+def test_dynamics_outer_retry_ladder_is_removed_from_v39_worker():
+    text = (ROOT / "Suno15_Mastering_v3_9.pyw").read_text(encoding="utf-8")
+    worker = text.split("    def _worker(", 1)[1].split("        if rows:", 1)[0]
+
+    assert "for attempt in range" not in worker
+    assert "factor * 0.65" not in worker
+    assert "max_retries" not in worker
+    assert "Transparent fallback: base dynamics risk" in worker
+    assert "Transparent fallback: final dynamics risk" in worker
+
+
+def test_v39_logs_resolved_settings_and_track_counters():
+    text = (ROOT / "Suno15_Mastering_v3_9.pyw").read_text(encoding="utf-8")
+
+    assert "[Settings]" in text
+    assert "maximumAutoRerenders =" in text
+    assert "dynamicsBaseRerenders =" in text
+    assert "codecMaximumAutoRerenders =" in text
+    assert "Fullness renders:" in text
+    assert "Quality Gate calls:" in text
+    assert "Codec checks:" in text
+    assert "초과했습니다" in text
+    assert "1/4" not in text

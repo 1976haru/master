@@ -51,12 +51,18 @@ class FullnessRender:
     after: AudioMetrics
     level_match_gain_db: float
     clipped_sample_count: int
+    processed_audio: np.ndarray | None = None
+    processed_sample_rate: int | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        payload = asdict(self)
-        payload["before"] = self.before.to_dict()
-        payload["after"] = self.after.to_dict()
-        return payload
+        return {
+            "decision": self.decision.to_dict(),
+            "before": self.before.to_dict(),
+            "after": self.after.to_dict(),
+            "level_match_gain_db": self.level_match_gain_db,
+            "clipped_sample_count": self.clipped_sample_count,
+            "processed_sample_rate": self.processed_sample_rate,
+        }
 
 
 def _finite_mean(values: list[float]) -> float:
@@ -339,7 +345,10 @@ def process(
     *,
     subtype: str = "PCM_24",
     source_metrics: AudioMetrics | None = None,
+    source_audio: np.ndarray | None = None,
+    source_sample_rate: int | None = None,
     analyze_after: bool = True,
+    return_audio: bool = False,
 ) -> FullnessRender:
     src = Path(source_path)
     dst = Path(destination_path)
@@ -348,9 +357,29 @@ def process(
             shutil.copy2(src, dst)
         before = source_metrics or analyze_file(src)
         after = before if src.resolve() == dst.resolve() else (source_metrics or analyze_file(dst))
-        return FullnessRender(decision, before, after, 0.0, after.clipped_sample_count)
+        audio = None
+        sample_rate = None
+        if return_audio:
+            if source_audio is not None and source_sample_rate is not None:
+                audio = np.asarray(source_audio, dtype=np.float64)
+                sample_rate = int(source_sample_rate)
+            else:
+                audio, sample_rate = sf.read(dst, always_2d=True, dtype="float64")
+        return FullnessRender(
+            decision,
+            before,
+            after,
+            0.0,
+            after.clipped_sample_count,
+            audio,
+            sample_rate,
+        )
 
-    audio, sample_rate = sf.read(src, always_2d=True, dtype="float64")
+    if source_audio is None or source_sample_rate is None:
+        audio, sample_rate = sf.read(src, always_2d=True, dtype="float64")
+    else:
+        audio = np.asarray(source_audio, dtype=np.float64)
+        sample_rate = int(source_sample_rate)
     before = source_metrics or analyze_array(audio, sample_rate)
     processed, level_gain = process_array(
         audio,
@@ -359,13 +388,15 @@ def process(
         source_lufs=before.lufs_i,
     )
     sf.write(dst, processed, sample_rate, subtype=subtype)
-    after = analyze_file(dst) if analyze_after else before
+    after = analyze_array(processed, sample_rate) if analyze_after else before
     return FullnessRender(
         decision=decision,
         before=before,
         after=after,
         level_match_gain_db=level_gain,
         clipped_sample_count=after.clipped_sample_count,
+        processed_audio=processed if return_audio else None,
+        processed_sample_rate=sample_rate if return_audio else None,
     )
 
 

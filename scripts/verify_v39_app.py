@@ -46,10 +46,20 @@ def main() -> int:
     )[0]
     assert "check_codec_safety" not in finish_candidate
     assert "v32.check_codec_safety" in source
+    worker = source.split("    def _worker(", 1)[1].split("        if rows:", 1)[0]
+    assert "for attempt in range" not in worker
+    assert "factor * 0.65" not in worker
+    assert "max_retries" not in worker
+    assert "dynamicsBaseRerenders =" in worker
+    assert "Fullness renders:" in worker
+    assert "Quality Gate calls:" in worker
+    assert "Codec checks:" in worker
+    assert "1/4" not in source
 
     print("[PASS] HARU Mastering v3.9 channel/genre fast fullness runtime is ready")
     print("CHANNEL_PROFILES and GENRE_PROFILES: separated")
     print("Fullness render cap: 2")
+    print("Dynamics outer retry ladder: removed")
     print("Codec Preview placement: final candidate path")
     return 0
 

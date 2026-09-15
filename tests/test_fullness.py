@@ -108,6 +108,41 @@ def test_process_reuses_source_metrics_for_natural_copy(tmp_path, monkeypatch):
     assert render.after is metrics
 
 
+def test_process_reuses_audio_and_returns_candidate_metrics_for_rich(tmp_path, monkeypatch):
+    sr = 48000
+    src = tmp_path / "source.wav"
+    dst = tmp_path / "master.wav"
+    audio = _thin_old_pop_like(sr, 2)
+    sf.write(src, audio, sr, subtype="PCM_24")
+    metrics = analyze_file(src)
+    decision = decide(metrics, genre_key="OLD POP", mode="RICH", strength_percent=60)
+
+    calls = {"count": 0}
+
+    def counted_analyze_file(*args, **kwargs):
+        calls["count"] += 1
+        return analyze_file(*args, **kwargs)
+
+    monkeypatch.setattr("haru_mastering.fullness.analyze_file", counted_analyze_file)
+
+    render = process(
+        src,
+        dst,
+        decision,
+        source_metrics=metrics,
+        source_audio=audio,
+        source_sample_rate=sr,
+        return_audio=True,
+    )
+
+    assert calls["count"] == 0
+    assert render.before is metrics
+    assert render.after is not metrics
+    assert render.processed_audio is not None
+    assert render.processed_sample_rate == sr
+    assert abs(render.after.lufs_i - metrics.lufs_i) <= 0.20
+
+
 def test_fast_fullness_engine_limits_render_passes():
     assert MAX_FULLNESS_RENDER_PASSES == 2
 
@@ -116,6 +151,15 @@ def test_retry_strength_is_selected_from_failure_reason():
     assert retry_strength_for_guard_reasons(("DYNAMICS RISK: LRA reduced 1.2 LU",)) == 60
     assert retry_strength_for_guard_reasons(("crest loss 1.0 dB",)) == 50
     assert retry_strength_for_guard_reasons(("codec preview unsafe: -1.20 dBTP",)) == 100
+    assert (
+        retry_strength_for_guard_reasons(
+            (
+                "true peak exceeded: -1.01 dBTP > -1.20 dBTP",
+                "DYNAMICS RISK: LRA reduced 1.05 LU (preferred limit 0.80)",
+            )
+        )
+        == 60
+    )
 
 
 def test_low_band_retry_reduces_body_bands_directly():
