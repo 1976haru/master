@@ -70,7 +70,10 @@ jobs:
       - name: Verify v3.8.1 filename cleanup
         run: python scripts/verify_v381_app.py
 
-      - name: Verify v3.8.1 launch paths
+      - name: Verify v3.9 channel/genre fast fullness runtime
+        run: python scripts/verify_v39_app.py
+
+      - name: Verify v3.9 launch paths
         run: python scripts/verify_v38_launch_paths.py
 
       - name: Compile runtime adapters
@@ -90,3 +93,4 @@ jobs:
           python -m py_compile Suno15_Mastering_v3_7_2.pyw
           python -m py_compile Suno15_Mastering_v3_8.pyw
           python -m py_compile Suno15_Mastering_v3_8_1.pyw
+          python -m py_compile Suno15_Mastering_v3_9.pyw
