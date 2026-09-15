@@ -55,3 +55,14 @@ def test_v39_logs_resolved_settings_and_track_counters():
     assert "Codec checks:" in text
     assert "초과했습니다" in text
     assert "1/4" not in text
+
+
+def test_worker_has_per_track_error_boundary_and_codec_gate_labels():
+    text = (ROOT / "Suno15_Mastering_v3_9.pyw").read_text(encoding="utf-8")
+    worker = text.split("    def _worker(", 1)[1].split("        if rows:", 1)[0]
+
+    assert "except (SystemExit, KeyboardInterrupt):" in worker
+    assert "except Exception as exc:" in worker
+    assert "_record_track_error(idx, total, src, out_dir, exc)" in worker
+    assert "Codec Final Gate" in text
+    assert "Codec sound reapply" in text
