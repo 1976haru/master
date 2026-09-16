@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import math
 import shutil
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -24,6 +24,9 @@ BANDS: tuple[tuple[int, int], ...] = (
 )
 
 FULLNESS_STRENGTH_STEPS = (100, 75, 50, 25, 0)
+FAST_FULLNESS_STRENGTH_STEPS = (100, 0)
+QUALITY_FULLNESS_STRENGTH_STEPS = (100, 50, 0)
+MAX_FULLNESS_RENDER_PASSES = 2
 _EPS = np.finfo(np.float64).tiny
 
 
@@ -48,12 +51,26 @@ class FullnessRender:
     after: AudioMetrics
     level_match_gain_db: float
     clipped_sample_count: int
+    processed_audio: np.ndarray | None = None
+    processed_sample_rate: int | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        payload = asdict(self)
-        payload["before"] = self.before.to_dict()
-        payload["after"] = self.after.to_dict()
-        return payload
+        return {
+            "decision": self.decision.to_dict(),
+            "before": self.before.to_dict(),
+            "after": self.after.to_dict(),
+            "level_match_gain_db": self.level_match_gain_db,
+            "clipped_sample_count": self.clipped_sample_count,
+            "processed_sample_rate": self.processed_sample_rate,
+        }
+
+
+@dataclass(frozen=True)
+class PeakTrimRender:
+    trim_db: float
+    metrics: AudioMetrics
+    processed_audio: np.ndarray
+    processed_sample_rate: int
 
 
 def _finite_mean(values: list[float]) -> float:
@@ -187,6 +204,11 @@ def decide(
         elif body_gap < -4.0:
             body_gain = _clamp((body_gap + 4.0) * 0.10, -0.5, 0.0)
 
+    fullness_cfg = profile.get("fullness") if isinstance(profile, Mapping) else None
+    if isinstance(fullness_cfg, Mapping):
+        warmth_gain *= float(fullness_cfg.get("warmthScale", 1.0))
+        body_gain *= float(fullness_cfg.get("bodyScale", 1.0))
+
     saturation_limit = SATURATION_LIMITS.get(genre, SATURATION_LIMITS["GENERAL"])
     if profile:
         saturation_cfg = profile.get("saturation") if isinstance(profile, Mapping) else None
@@ -197,8 +219,18 @@ def decide(
             )
         elif isinstance(saturation_cfg, Mapping):
             saturation_limit = 0.0
+        if isinstance(fullness_cfg, Mapping):
+            saturation_limit = min(
+                saturation_limit,
+                float(fullness_cfg.get("saturationMaximumWetPercent", saturation_limit)),
+            )
 
     density_limit = DENSITY_LIMITS.get(genre, DENSITY_LIMITS["GENERAL"])
+    if isinstance(fullness_cfg, Mapping):
+        density_limit = min(
+            density_limit,
+            float(fullness_cfg.get("densityMaximumWetPercent", density_limit)),
+        )
     return FullnessDecision(
         mode="RICH",
         strength_percent=strength,
@@ -288,8 +320,9 @@ def process_array(
     audio: np.ndarray,
     sample_rate: int,
     decision: FullnessDecision,
+    *,
+    source_lufs: float | None = None,
 ) -> tuple[np.ndarray, float]:
-    before_lufs = analyze_array(audio, sample_rate).lufs_i
     processed = np.asarray(audio, dtype=np.float64).copy()
     if decision.strength_percent <= 0 or decision.mode != "RICH":
         return processed, 0.0
@@ -298,6 +331,11 @@ def process_array(
     processed = _apply_band_gain(processed, sample_rate, 220.0, 450.0, decision.body_gain_db)
     processed = _level_compensated_saturation(processed, decision.saturation_wet_percent)
     processed = _parallel_density(processed, decision.density_wet_percent)
+    before_lufs = (
+        float(source_lufs)
+        if source_lufs is not None and math.isfinite(float(source_lufs))
+        else analyze_array(audio, sample_rate).lufs_i
+    )
     processed, level_gain = _match_integrated_loudness(processed, sample_rate, before_lufs)
 
     peak = float(np.max(np.abs(processed))) if processed.size else 0.0
@@ -314,25 +352,178 @@ def process(
     decision: FullnessDecision,
     *,
     subtype: str = "PCM_24",
+    source_metrics: AudioMetrics | None = None,
+    source_audio: np.ndarray | None = None,
+    source_sample_rate: int | None = None,
+    analyze_after: bool = True,
+    return_audio: bool = False,
 ) -> FullnessRender:
     src = Path(source_path)
     dst = Path(destination_path)
     if decision.strength_percent <= 0 or decision.mode != "RICH":
         if src.resolve() != dst.resolve():
             shutil.copy2(src, dst)
-        before = analyze_file(src)
-        after = analyze_file(dst)
-        return FullnessRender(decision, before, after, 0.0, after.clipped_sample_count)
+        before = source_metrics or analyze_file(src)
+        after = before if src.resolve() == dst.resolve() else (source_metrics or analyze_file(dst))
+        audio = None
+        sample_rate = None
+        if return_audio:
+            if source_audio is not None and source_sample_rate is not None:
+                audio = np.asarray(source_audio, dtype=np.float64)
+                sample_rate = int(source_sample_rate)
+            else:
+                audio, sample_rate = sf.read(dst, always_2d=True, dtype="float64")
+        return FullnessRender(
+            decision,
+            before,
+            after,
+            0.0,
+            after.clipped_sample_count,
+            audio,
+            sample_rate,
+        )
 
-    audio, sample_rate = sf.read(src, always_2d=True, dtype="float64")
-    before = analyze_array(audio, sample_rate)
-    processed, level_gain = process_array(audio, sample_rate, decision)
+    if source_audio is None or source_sample_rate is None:
+        audio, sample_rate = sf.read(src, always_2d=True, dtype="float64")
+    else:
+        audio = np.asarray(source_audio, dtype=np.float64)
+        sample_rate = int(source_sample_rate)
+    before = source_metrics or analyze_array(audio, sample_rate)
+    processed, level_gain = process_array(
+        audio,
+        sample_rate,
+        decision,
+        source_lufs=before.lufs_i,
+    )
     sf.write(dst, processed, sample_rate, subtype=subtype)
-    after = analyze_file(dst)
+    after = analyze_array(processed, sample_rate) if analyze_after else before
     return FullnessRender(
         decision=decision,
         before=before,
         after=after,
         level_match_gain_db=level_gain,
         clipped_sample_count=after.clipped_sample_count,
+        processed_audio=processed if return_audio else None,
+        processed_sample_rate=sample_rate if return_audio else None,
+    )
+
+
+def is_true_peak_only_guard_failure(reasons: list[str] | tuple[str, ...]) -> bool:
+    if not reasons:
+        return False
+    lowered = [str(reason).strip().lower() for reason in reasons]
+    return all(reason.startswith("true peak exceeded") for reason in lowered)
+
+
+def peak_safety_trim_db(
+    metrics: AudioMetrics,
+    *,
+    true_peak_ceiling_dbtp: float,
+    safety_margin_db: float = 0.05,
+    maximum_trim_db: float = 0.50,
+) -> float:
+    excess = float(metrics.true_peak_dbtp) - float(true_peak_ceiling_dbtp)
+    if not np.isfinite(excess) or excess <= 0.0:
+        return 0.0
+    needed = excess + max(0.0, float(safety_margin_db))
+    if needed > float(maximum_trim_db):
+        return 0.0
+    return -round(float(needed), 3)
+
+
+def apply_peak_safety_trim(
+    dst: str | Path,
+    *,
+    trim_db: float,
+    source_audio: np.ndarray | None = None,
+    source_sample_rate: int | None = None,
+    subtype: str = "PCM_24",
+    true_peak_oversample: int = 4,
+) -> PeakTrimRender:
+    target = Path(dst)
+    if source_audio is None or source_sample_rate is None:
+        audio, sample_rate = sf.read(target, always_2d=True, dtype="float64")
+    else:
+        audio = np.asarray(source_audio, dtype=np.float64)
+        sample_rate = int(source_sample_rate)
+    gain = 10.0 ** (float(trim_db) / 20.0)
+    processed = audio * gain
+    sf.write(target, processed, sample_rate, subtype=subtype)
+    metrics = analyze_array(
+        processed,
+        sample_rate,
+        true_peak_oversample=true_peak_oversample,
+    )
+    return PeakTrimRender(
+        trim_db=float(trim_db),
+        metrics=metrics,
+        processed_audio=processed,
+        processed_sample_rate=sample_rate,
+    )
+
+
+def retry_strength_for_guard_reasons(reasons: list[str] | tuple[str, ...]) -> int:
+    text = " / ".join(str(reason).lower() for reason in reasons)
+    if not text:
+        return 50
+    if "codec" in text:
+        return 100
+    if "lra" in text and "risk" in text:
+        return 60
+    if "crest" in text:
+        return 50
+    if "low-band stereo correlation" in text:
+        return 60
+    if "true peak" in text:
+        return 50
+    if "clipped" in text or "clipping" in text:
+        return 50
+    return 50
+
+
+def reduce_decision_for_guard_reasons(
+    decision: FullnessDecision,
+    reasons: list[str] | tuple[str, ...],
+    *,
+    strength_percent: int | None = None,
+) -> FullnessDecision:
+    strength = retry_strength_for_guard_reasons(reasons) if strength_percent is None else int(strength_percent)
+    strength = int(_clamp(strength, 0, 100))
+    if strength <= 0 or decision.mode != "RICH":
+        return FullnessDecision(
+            mode="NATURAL",
+            strength_percent=0,
+            warmth_gain_db=0.0,
+            body_gain_db=0.0,
+            saturation_wet_percent=0.0,
+            density_wet_percent=0.0,
+            bypassed_reason="guard_reduced_to_off",
+        )
+
+    scale = strength / max(float(decision.strength_percent), 1.0)
+    text = " / ".join(str(reason).lower() for reason in reasons)
+    warmth = float(decision.warmth_gain_db) * scale
+    body = float(decision.body_gain_db) * scale
+    saturation = float(decision.saturation_wet_percent) * scale
+    density = float(decision.density_wet_percent) * scale
+
+    if "low-band stereo correlation" in text:
+        warmth *= 0.35
+        body *= 0.35
+    if "clipped" in text or "clipping" in text:
+        saturation *= 0.50
+        density *= 0.50
+    if "true peak" in text:
+        saturation *= 0.70
+        density *= 0.70
+    if "lra" in text or "crest" in text:
+        density *= 0.65
+
+    return replace(
+        decision,
+        strength_percent=strength,
+        warmth_gain_db=round(warmth, 3),
+        body_gain_db=round(body, 3),
+        saturation_wet_percent=round(saturation, 3),
+        density_wet_percent=round(density, 3),
     )

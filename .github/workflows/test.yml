@@ -70,8 +70,14 @@ jobs:
       - name: Verify v3.8.1 filename cleanup
         run: python scripts/verify_v381_app.py
 
-      - name: Verify v3.8.1 launch paths
+      - name: Verify v3.9 channel/genre fast fullness runtime
+        run: python scripts/verify_v39_app.py
+
+      - name: Verify v3.9 launch paths
         run: python scripts/verify_v38_launch_paths.py
+
+      - name: Verify v3.10 Queue Manager
+        run: python scripts/verify_v310_queue.py
 
       - name: Compile runtime adapters
         shell: pwsh
@@ -90,3 +96,33 @@ jobs:
           python -m py_compile Suno15_Mastering_v3_7_2.pyw
           python -m py_compile Suno15_Mastering_v3_8.pyw
           python -m py_compile Suno15_Mastering_v3_8_1.pyw
+          python -m py_compile Suno15_Mastering_v3_9.pyw
+          python -m py_compile Suno15_Mastering_v3_10.pyw
+          python -m py_compile scripts/queue_worker.py
+
+  python314-queue-compat:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.14
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      - name: Install queue compatibility dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+          python -m pip install imageio-ffmpeg
+
+      - name: Queue compatibility tests
+        run: python -m pytest -q tests/test_queue_manager.py tests/test_queue_worker.py
+
+      - name: Verify v3.10 Queue Manager on Python 3.14
+        run: python scripts/verify_v310_queue.py
+
+      - name: Compile v3.10 queue runtime on Python 3.14
+        run: python -m py_compile Suno15_Mastering_v3_10.pyw scripts/queue_worker.py
