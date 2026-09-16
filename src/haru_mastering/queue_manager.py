@@ -191,9 +191,65 @@ class QueueManager:
         self._changed(job)
         return job
 
-    def remove(self, job_id: str) -> None:
+    def remove(self, job_id: str) -> bool:
+        before = len(self.jobs)
         self.jobs = [job for job in self.jobs if job.job_id != job_id or job.status == "RUNNING"]
-        self._changed()
+        removed = len(self.jobs) != before
+        if removed:
+            self._changed()
+        return removed
+
+    def remove_waiting_jobs(self) -> int:
+        before = len(self.jobs)
+        self.jobs = [job for job in self.jobs if job.status != "WAITING"]
+        removed = before - len(self.jobs)
+        if removed:
+            self._changed()
+        return removed
+
+    def cancel_job(self, job_id: str) -> bool:
+        job = next((job for job in self.jobs if job.job_id == job_id), None)
+        if job is None:
+            return False
+        if job.status == "WAITING":
+            job.status = "CANCELLED"
+            job.completed_at = utc_now()
+            job.process_id = None
+            self._changed(job)
+            return True
+        if job.status != "RUNNING":
+            return False
+
+        process = self.processes.pop(job_id, None)
+        if process is not None:
+            self._terminate_process(process)
+        job.status = "CANCELLED"
+        job.completed_at = utc_now()
+        job.process_id = None
+        self._changed(job)
+        if not self.active_jobs:
+            self.sleep_inhibitor.restore()
+        self._launch_available()
+        return True
+
+    def _terminate_process(self, process: Any) -> None:
+        try:
+            process.terminate()
+        except Exception:
+            return
+        try:
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            try:
+                process.kill()
+            except Exception:
+                return
+            try:
+                process.wait(timeout=5)
+            except Exception:
+                return
+        except Exception:
+            return
 
     def start(self) -> None:
         self.paused = False

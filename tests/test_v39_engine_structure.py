@@ -24,10 +24,11 @@ def test_quality_modes_document_fullness_pass_limits_in_ui():
     assert "Fullness 최대 2 passes" in text
 
 
-def test_v39_is_latest_launcher_target():
+def test_v310_is_default_run_launcher_target():
     run = (ROOT / "RUN.bat").read_text(encoding="utf-8", errors="ignore")
     legacy = (ROOT / "Suno15_Mastering.pyw").read_text(encoding="utf-8", errors="ignore")
 
+    assert run.find("Suno15_Mastering_v3_10.pyw") < run.find("Suno15_Mastering_v3_9.pyw")
     assert run.find("Suno15_Mastering_v3_9.pyw") < run.find("Suno15_Mastering_v3_8_1.pyw")
     assert legacy.find("Suno15_Mastering_v3_9.pyw") < legacy.find("Suno15_Mastering_v3_8_1.pyw")
 

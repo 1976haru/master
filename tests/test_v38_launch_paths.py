@@ -6,7 +6,12 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_run_bat_prefers_v39_before_v381():
+def test_run_bat_prefers_v310_before_v39():
+    text = (ROOT / "RUN.bat").read_text(encoding="utf-8", errors="ignore")
+    assert text.find("Suno15_Mastering_v3_10.pyw") < text.find("Suno15_Mastering_v3_9.pyw")
+
+
+def test_run_bat_keeps_v39_before_v381():
     text = (ROOT / "RUN.bat").read_text(encoding="utf-8", errors="ignore")
     assert text.find("Suno15_Mastering_v3_9.pyw") < text.find("Suno15_Mastering_v3_8_1.pyw")
 
