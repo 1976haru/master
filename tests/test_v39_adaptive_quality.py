@@ -190,7 +190,15 @@ def test_v39_fullness_refresh_preserves_existing_final_metrics(tmp_path):
     output = tmp_path / "out"
     output.mkdir()
     csv_path = output / "mastering_report.csv"
-    fields = ["track", "final_LRA", "final_lufs_delta_lu", "fullness_mode"]
+    fields = [
+        "track",
+        "final_LRA",
+        "final_LUFS",
+        "final_lufs_delta_lu",
+        "fullness_mode",
+        "app_version",
+        "final_metrics_sync_version",
+    ]
     with csv_path.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=fields)
         writer.writeheader()
@@ -198,8 +206,11 @@ def test_v39_fullness_refresh_preserves_existing_final_metrics(tmp_path):
             {
                 "track": "track.wav",
                 "final_LRA": "3.75",
+                "final_LUFS": "-15.73",
                 "final_lufs_delta_lu": "+0.01",
                 "fullness_mode": "RICH",
+                "app_version": "v3.8",
+                "final_metrics_sync_version": "v3.7.2",
             }
         )
 
@@ -208,8 +219,11 @@ def test_v39_fullness_refresh_preserves_existing_final_metrics(tmp_path):
         row = next(csv.DictReader(handle))
 
     assert row["final_LRA"] == "3.75"
+    assert row["final_LUFS"] == "-15.73"
     assert row["final_lufs_delta_lu"] == "+0.01"
     assert row["fullness_mode"] == "RICH"
+    assert row["app_version"] == "v3.9"
+    assert row["final_metrics_sync_version"] == "v3.9"
 
 
 def test_true_peak_only_fullness_issue_uses_micro_trim():
