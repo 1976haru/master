@@ -273,7 +273,9 @@ def organize_release_files(
     for source, status in rows:
         if not source.exists():
             continue
-        destination_dir = paths["release"] if status == "PASS" else paths["review"]
+        normalized = str(status or "").upper()
+        ready = normalized in {"PASS", "RELEASE_READY", "RELEASE_READY_WITH_WARNING"}
+        destination_dir = paths["release"] if ready else paths["review"]
         shutil.copy2(source, destination_dir / source.name)
     return paths
 

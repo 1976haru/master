@@ -1,14 +1,14 @@
-# HARU Mastering v3.8.1
+# HARU Mastering v3.9
 
-`HARU Mastering v3.8.1` keeps the v3.8 Fullness Engine and changes only the final user-facing WAV filename policy: release and review WAVs keep the original title and no longer add `_MASTER`.
+`HARU Mastering v3.9` separates channel/mastering presets from real music genres and replaces the v3.8 fixed 5-step Fullness retry ladder with a faster guarded engine.
 
 Executable:
 
-`Suno15_Mastering_v3_8_1.pyw`
+`Suno15_Mastering_v3_9.pyw`
 
 Window title:
 
-`HARU / SUNO 15-SET MASTERING v3.8.1`
+`HARU / SUNO 15-SET MASTERING v3.9`
 
 ## Run
 
@@ -16,98 +16,104 @@ Use `RUN.bat` or `START_HERE.bat`.
 
 `RUN.bat` starts files in this order:
 
-1. `Suno15_Mastering_v3_8_1.pyw`
-2. `Suno15_Mastering_v3_8.pyw`
-3. `Suno15_Mastering_v3_7_2.pyw`
-3. Earlier v3 adapters
-4. v2
-5. legacy compatibility module
+1. `Suno15_Mastering_v3_9.pyw`
+2. `Suno15_Mastering_v3_8_1.pyw`
+3. `Suno15_Mastering_v3_8.pyw`
+4. Earlier v3 adapters
+5. v2
+6. legacy compatibility module
 
-`Suno15_Mastering.pyw` remains as the legacy import compatibility module. If it is double-clicked directly, it shows a notice and redirects to the latest HARU Mastering instead of opening the v1.1 UI.
+`Suno15_Mastering.pyw` remains as the legacy import compatibility module. If it is double-clicked directly, it shows a notice and redirects to the latest HARU Mastering.
 
-The old package folder is archived at `archive/legacy_v1_2`. Its `RUN.bat` and `START_HERE.bat` also forward to the root `RUN.bat`.
+## Channel Presets
 
-## Final WAV Names
+Channel presets set the broad sound direction: target LUFS tendency, true-peak safety, listening fatigue, warmth, saturation, stereo tendency, vocal texture and default Fullness behavior.
 
-Input:
+- 올드팝 라운지
+- 한국 시니어
+- 일본 시니어
+- Tokyo Chill / 일본 20~30대
+- 일반 / 채널 지정 없음
 
-`01. Blue Passbook.wav`
+`OLD POP LOUNGE` is a channel/mastering preset. It is not a music genre.
 
-Final:
+## Music Genres
 
-`01. Blue Passbook.wav`
+Genres describe the music itself: EQ tendency, dynamics and instrument/vocal behavior.
 
-Input:
+- 팝
+- 발라드
+- 재즈
+- 샹송
+- 소울
+- R&B
+- 포크 / 어쿠스틱
+- 록 / 밴드
+- 시티팝
+- 엔카 / 가요곡
+- 트로트
+- K-POP
+- 동요 / Kids Pop
+- Lo-fi
+- Chill Rap
+- Instrumental / New Age
+- 60~80s Pop / Oldies
+- 기타 / 일반
 
-`01. Honey on the Knife (꿀 묻은 버터나이프).wav`
+## Profile Composition
 
-Final:
+Final mastering uses:
 
-`01. Honey on the Knife (꿀 묻은 버터나이프).wav`
+`CHANNEL PROFILE + GENRE PROFILE + SOUND MODE`
 
-Final WAVs in `01_RELEASE_READY` and `02_NEEDS_REVIEW` must not contain `_MASTER`, `_master`, `_MATER`, or `_MASTERED`.
+Example:
 
-## Fullness Engine
+`올드팝 라운지 + 발라드 + 풍부함+`
 
-Fullness Engine does not solve fullness by making the song louder. OLD POP still keeps the `-14.0 LUFS` target. The engine analyzes each track and applies only the needed amount of:
+This combines long-listening Old Pop Lounge behavior, ballad dynamics/EQ and Fullness processing.
 
-- Warmth: 90-220 Hz, max `+0.8 dB`
-- Body: 220-450 Hz, max `+0.5 dB`
-- Warm saturation: tanh soft saturation with dry/wet blend
-- Parallel density: very light center density
-- Auto Guard: `100% -> 75% -> 50% -> 25% -> OFF`
+## Fast Fullness Engine
 
-Guarded conditions:
+v3.8 could try:
 
-- clipping 0
-- True Peak ceiling
-- LUFS tolerance `0.20 LU`
-- LRA and Dynamics Guard
-- low-band stereo correlation below 110 Hz
-- codec preview safety
-- Tail safety
+`100 -> 75 -> 50 -> 25 -> OFF`
 
-## Sound Mode
+v3.9 uses:
 
-The UI adds `사운드 성향` under quality mode:
+- FAST: Fullness maximum 1 render pass
+- QUALITY+: Fullness maximum 2 render passes
+- Retry strength is selected from the failure reason
+- Codec Preview is not run for every Fullness candidate
+- Codec Preview runs on the final candidate path
+- Codec unsafe cases still use the loudness-preserving lower-ceiling rerender strategy
 
-- `자연스러움`: bypasses Fullness DSP
-- `풍부함+ (추천)`: applies automatic Warmth / Harmonic / Density only as needed
+## Stage Timing
 
-Default `풍부함+`: OLD POP, SENIOR KR, SENIOR JP, SHOWA JP, BALLAD, SOUL, K-POP, KIDS POP.
+Each track logs internal stages:
 
-Default `자연스러움`: JAZZ, ACOUSTIC, INSTRUMENTAL.
+- analysis
+- base mastering
+- Fullness analysis
+- Fullness render
+- Quality Gate
+- Codec Preview
+- complete time
 
-## CSV Columns
+## Preserved Safety Features
 
-`mastering_report.csv` and `03_REPORT/mastering_report.csv` keep user-friendly track names such as `01. Blue Passbook.wav` and include:
-
-- `app_version`
-- `fullness_mode`
-- `fullness_strength_percent`
-- `warmth_gain_db`
-- `body_gain_db`
-- `saturation_wet_percent`
-- `density_wet_percent`
-- `fullness_auto_reduced`
-- `fullness_retry_count`
-- `fullness_bypassed_reason`
-
-## Preserved v3.7.2 Features
-
-- 23 genres
-- OLD POP, Korean Senior, Japanese Senior, SHOWA, Enka, K-POP, Kids Pop, General
+- final LUFS
+- True Peak
+- final LRA
+- Dynamics Guard
 - Smart Delay
 - Adaptive Tail
-- Dynamics Guard
-- codec ceiling rerender
-- final LUFS sync
-- `final_LRA`
-- `final_lufs_within_tolerance`
-- `RELEASE_READY` / `NEEDS_REVIEW`
-- HTML / JSON / CSV report
-- 48 kHz PCM24 output
-- clipping 0 protection
+- low-band stereo correlation
+- clipping 0
+- codec safety
+- RELEASE_READY / NEEDS_REVIEW
+- Fullness
+- final CSV sync
+- suffixless final WAV names
 
 ## Verify
 
@@ -117,11 +123,18 @@ Run:
 pytest
 ```
 
-Launcher and v3.8 checks:
+Launcher and v3.9 checks:
 
 ```powershell
-.\.venv\Scripts\python.exe .\scripts\verify_v381_app.py
+.\.venv\Scripts\python.exe .\scripts\verify_v39_app.py
 .\.venv\Scripts\python.exe .\scripts\verify_v38_launch_paths.py
 ```
 
+Synthetic benchmark:
+
+```powershell
+.\.venv\Scripts\python.exe .\scripts\benchmark_v39_synthetic.py
+```
+
 Do not merge this branch to `main` until the user verifies 15 real Suno WAV files.
+

@@ -564,6 +564,7 @@ def _launch_latest_from_legacy():
 
     root = Path(__file__).resolve().parent
     candidates = [
+        root / "Suno15_Mastering_v3_9.pyw",
         root / "Suno15_Mastering_v3_8_1.pyw",
         root / "Suno15_Mastering_v3_8.pyw",
         root / "Suno15_Mastering_v3_7_2.pyw",
