@@ -25,7 +25,12 @@ def load_v39(root: Path):
     if spec is None:
         raise RuntimeError(f"cannot load {source}")
     module = module_from_spec(spec)
-    loader.exec_module(module)
+    sys.modules[loader.name] = module
+    try:
+        loader.exec_module(module)
+    except Exception:
+        sys.modules.pop(loader.name, None)
+        raise
     return module
 
 

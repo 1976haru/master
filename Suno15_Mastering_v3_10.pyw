@@ -5,6 +5,7 @@ The v3.9 mastering engine remains isolated in its own child process.
 from __future__ import annotations
 
 import os
+import sys
 from importlib.machinery import SourceFileLoader
 from importlib.util import module_from_spec, spec_from_loader
 from pathlib import Path
@@ -19,7 +20,12 @@ def _load_v39():
     if spec is None:
         raise RuntimeError(f"cannot load {source}")
     module = module_from_spec(spec)
-    loader.exec_module(module)
+    sys.modules[loader.name] = module
+    try:
+        loader.exec_module(module)
+    except Exception:
+        sys.modules.pop(loader.name, None)
+        raise
     return module
 
 
