@@ -170,9 +170,16 @@ def patch_csv_with_fullness(output_dir: str | Path, metadata: dict[str, Fullness
     metadata = metadata or {}
     for row in rows:
         track = (row.get("track") or "").strip()
-        entry = metadata.get(track, FullnessCsvRow())
-        row.update(entry.as_csv())
-        row["final_metrics_sync_version"] = REPORT_VERSION
+        entry = metadata.get(track)
+        if entry is not None:
+            row.update(entry.as_csv())
+        else:
+            defaults = FullnessCsvRow().as_csv()
+            for name, value in defaults.items():
+                if not str(row.get(name) or "").strip():
+                    row[name] = value
+        if not str(row.get("final_metrics_sync_version") or "").strip():
+            row["final_metrics_sync_version"] = REPORT_VERSION
         changed += 1
 
     with csv_path.open("w", newline="", encoding="utf-8-sig") as handle:

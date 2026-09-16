@@ -76,6 +76,7 @@ from haru_mastering.retry_policy import (
     slowest_stage,
 )
 from haru_mastering.transparent import decide_gain_only, render_gain_only
+from haru_mastering.dc_cleanup import remove_dc_offset
 from haru_mastering.version import APP_TITLE, DISPLAY_VERSION, REPORT_VERSION, VERSION
 import haru_mastering.report as report_module
 
@@ -142,6 +143,9 @@ class TrackCounters:
     accepted_peak_trim_db: float = 0.0
     peak_trim_count: int = 0
     gain_only_render_count: int = 0
+    dc_correction_count: int = 0
+    dc_before_max_abs: float = 0.0
+    dc_after_max_abs: float = 0.0
     codec_check_count: int = 0
     fullness_render_limit: int = 2
 
@@ -172,6 +176,11 @@ TRACK_REPORT_FIELDS = (
     "source_clipped_sample_count",
     "gain_only_applied",
     "gain_only_gain_db",
+    "preflight_effective_target_LUFS",
+    "effective_target_reason",
+    "dc_correction_count",
+    "dc_before_max_abs",
+    "dc_after_max_abs",
     "final_sound_mode",
     "final_fullness_strength",
     "peak_trim_db",
@@ -220,6 +229,15 @@ TRACK_REPORT_FIELDS = (
     "fullness_retry_count",
     "fullness_bypassed_reason",
 )
+
+
+@dataclass
+class RuntimeTargetState:
+    configured_target_lufs: float
+    adaptive_target_lufs: float
+    preflight_effective_target_lufs: float
+    current_effective_target_lufs: float
+    reason: str = "preflight"
 
 
 @dataclass
@@ -350,8 +368,12 @@ def _attempted_steps_from_row(row: dict | None) -> list[str]:
     if not row:
         return ["basic mastering and quality validation"]
     steps: list[str] = []
+    if _safe_int(row.get("gain_only_render_count")):
+        steps.append("다이내믹 보존형 Gain-only 마스터링")
     if _safe_int(row.get("transparent_render_count")):
         steps.append("transparent mastering")
+    if _safe_int(row.get("dc_correction_count")):
+        steps.append("DC offset correction")
     if _safe_int(row.get("fullness_render_count")):
         steps.append("Fullness adjustment")
     if _safe_int(row.get("peak_trim_count")):
@@ -731,6 +753,22 @@ class AppV39(v38.AppV38):
         _COMPOSITE_RUNTIME_PROFILES[mastering_key] = copy.deepcopy(track_profile)
         return track_profile
 
+    @staticmethod
+    def _sync_runtime_target(
+        state: RuntimeTargetState,
+        gate_kwargs: dict,
+        profile: dict,
+        decision,
+        *,
+        reason: str,
+    ) -> float:
+        target = float(decision.effective_target_lufs)
+        state.current_effective_target_lufs = target
+        state.reason = str(reason)
+        gate_kwargs["target_lufs_i"] = target
+        profile["targetLufsI"] = target
+        return target
+
     def _render_fullness_candidate(
         self,
         base: Path,
@@ -868,6 +906,26 @@ class AppV39(v38.AppV38):
                 processed_audio = None
                 processed_sample_rate = None
                 processed_metrics = None
+            if (
+                processed_metrics is not None
+                and counters.dc_correction_count < 1
+                and max((abs(value) for value in processed_metrics.dc_offset), default=0.0)
+                > 0.0001
+            ):
+                cleanup = remove_dc_offset(
+                    dst,
+                    audio=processed_audio,
+                    sample_rate=processed_sample_rate,
+                    maximum_dc_offset=0.0001,
+                    true_peak_oversample=int(gate_kwargs.get("true_peak_oversample", 4)),
+                )
+                counters.dc_correction_count += 1
+                counters.dc_before_max_abs = cleanup.before_max_abs
+                counters.dc_after_max_abs = cleanup.after_max_abs
+                processed_audio = cleanup.processed_audio
+                processed_sample_rate = cleanup.processed_sample_rate
+                processed_metrics = cleanup.metrics
+                _append_unique(fixes, "DC offset correction")
             start_qg = time.perf_counter()
             evaluated = self._evaluate_candidate(
                 source,
@@ -1394,6 +1452,12 @@ class AppV39(v38.AppV38):
                         if preflight.effective_target_lufs is not None
                         else preflight.adaptive_target_lufs
                     )
+                    target_state = RuntimeTargetState(
+                        configured_target_lufs=float(preflight.configured_target_lufs),
+                        adaptive_target_lufs=float(preflight.adaptive_target_lufs),
+                        preflight_effective_target_lufs=effective_target,
+                        current_effective_target_lufs=effective_target,
+                    )
                     track_gate_kwargs = dict(gate_kwargs)
                     track_gate_kwargs["target_lufs_i"] = effective_target
                     track_profile = self._apply_preflight_profile(
@@ -1447,6 +1511,13 @@ class AppV39(v38.AppV38):
                             effective_target,
                             float(track_profile["truePeakCeilingDbtp"]),
                         )
+                        effective_target = self._sync_runtime_target(
+                            target_state,
+                            track_gate_kwargs,
+                            track_profile,
+                            gain_decision,
+                            reason="gain_only_peak_safety",
+                        )
                         counters.gain_only_render_count += 1
                     else:
                         render_ok, render_err = self._render_base(src, base, mastering_key, factor, mode)
@@ -1488,6 +1559,13 @@ class AppV39(v38.AppV38):
                                 source_ctx,
                                 effective_target,
                                 float(track_profile["truePeakCeilingDbtp"]),
+                            )
+                            effective_target = self._sync_runtime_target(
+                                target_state,
+                                track_gate_kwargs,
+                                track_profile,
+                                gain_decision,
+                                reason="dynamics_gain_only_fallback",
                             )
                             processing_mode = "gain_only"
                             counters.gain_only_render_count += 1
@@ -1569,6 +1647,13 @@ class AppV39(v38.AppV38):
                             effective_target,
                             float(track_profile["truePeakCeilingDbtp"]),
                         )
+                        effective_target = self._sync_runtime_target(
+                            target_state,
+                            track_gate_kwargs,
+                            track_profile,
+                            gain_decision,
+                            reason="dynamics_gain_only_fallback",
+                        )
                         processing_mode = "gain_only"
                         counters.gain_only_render_count += 1
                         base_seconds = time.perf_counter() - start
@@ -1647,6 +1732,13 @@ class AppV39(v38.AppV38):
                                     effective_target,
                                     current_tp,
                                 )
+                                effective_target = self._sync_runtime_target(
+                                    target_state,
+                                    track_gate_kwargs,
+                                    track_profile,
+                                    gain_decision,
+                                    reason="codec_gain_only_rerender",
+                                )
                                 counters.gain_only_render_count += 1
                             else:
                                 render_ok, render_err = self._render_base(src, base, mastering_key, factor, mode)
@@ -1720,6 +1812,20 @@ class AppV39(v38.AppV38):
                         auto_fixed_count += 1
                     release_rows.append((dst, release_disposition))
                     final = result.processed if result is not None else None
+                    fullness_values = {}
+                    fullness_entry = self._fullness_metadata.get(src.name)
+                    if fullness_entry is not None:
+                        fullness_values = fullness_entry.as_csv()
+                    final_delta = ""
+                    final_within = ""
+                    if final is not None and math.isfinite(float(final.lufs_i)):
+                        final_delta_value = float(final.lufs_i) - effective_target
+                        final_delta = f"{final_delta_value:+.2f}"
+                        final_within = (
+                            "true"
+                            if abs(final_delta_value) <= LOUDNESS_TOLERANCE_LU + 1e-9
+                            else "false"
+                        )
                     rows.append(
                         {
                             "track": src.name,
@@ -1733,6 +1839,8 @@ class AppV39(v38.AppV38):
                             "target_LUFS": f"{effective_target:.2f}",
                             "configured_target_LUFS": f"{preflight.configured_target_lufs:.2f}",
                             "adaptive_target_LUFS": f"{preflight.adaptive_target_lufs:.2f}",
+                            "preflight_effective_target_LUFS": f"{target_state.preflight_effective_target_lufs:.2f}",
+                            "effective_target_reason": target_state.reason,
                             "loudness_concession_LU": f"{preflight.loudness_concession_lu:.2f}",
                             "projected_peak_reduction_dB": f"{preflight.projected_peak_reduction_db:.2f}",
                             "compression_mode": preflight.compression_mode,
@@ -1743,7 +1851,9 @@ class AppV39(v38.AppV38):
                                 "true" if source_ctx.metrics.clipped_sample_count > 0 else "false"
                             ),
                             "source_clipped_sample_count": str(source_ctx.metrics.clipped_sample_count),
-                            "gain_only_applied": "true" if preflight.gain_only_recommended else "false",
+                            "gain_only_applied": (
+                                "true" if counters.gain_only_render_count > 0 else "false"
+                            ),
                             "gain_only_gain_db": (
                                 f"{gain_decision.applied_gain_db:.2f}" if gain_decision is not None else ""
                             ),
@@ -1754,6 +1864,18 @@ class AppV39(v38.AppV38):
                             "release_disposition": release_disposition,
                             "final_LUFS": _format_metric(final.lufs_i) if final else "",
                             "final_dBTP": _format_metric(final.true_peak_dbtp) if final else "",
+                            "final_LRA": _format_metric(final.lra_lu) if final else "",
+                            "final_lufs_delta_lu": final_delta,
+                            "final_lufs_within_tolerance": final_within,
+                            "codec_strategy": (
+                                "gain_only_codec_rerender"
+                                if counters.gain_only_render_count > 1 and counters.codec_ceiling_rerender_count
+                                else "ceiling_rerender_preserve_loudness"
+                                if counters.codec_ceiling_rerender_count
+                                else "standard_codec_check"
+                            ),
+                            "final_metrics_sync_version": REPORT_VERSION,
+                            "app_version": REPORT_VERSION,
                             "processing_mode": processing_mode,
                             "adaptive_factor": f"{factor:.2f}",
                             "auto_fixes": " / ".join(fixes),
@@ -1785,6 +1907,10 @@ class AppV39(v38.AppV38):
                             "gain_only_render_count": str(counters.gain_only_render_count),
                             "codec_check_count": str(counters.codec_check_count),
                             "notes": notes,
+                            "dc_correction_count": str(counters.dc_correction_count),
+                            "dc_before_max_abs": f"{counters.dc_before_max_abs:.6f}",
+                            "dc_after_max_abs": f"{counters.dc_after_max_abs:.6f}",
+                            **fullness_values,
                         }
                     )
                     track_timing.total = time.perf_counter() - track_start

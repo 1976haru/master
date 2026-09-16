@@ -145,6 +145,73 @@ def test_v39_final_csv_schema_preserves_legacy_fullness_and_adaptive_fields():
     assert required.issubset(set(app.TRACK_REPORT_FIELDS))
 
 
+def test_gain_only_fallback_updates_runtime_effective_target():
+    import Suno15_Mastering_v3_9 as app
+
+    state = app.RuntimeTargetState(-14.0, -14.45, -15.99, -15.99)
+    gate = {"target_lufs_i": -15.99}
+    profile = {"targetLufsI": -15.99}
+    decision = SimpleNamespace(effective_target_lufs=-16.00)
+
+    target = app.AppV39._sync_runtime_target(
+        state,
+        gate,
+        profile,
+        decision,
+        reason="dynamics_gain_only_fallback",
+    )
+
+    assert target == -16.00
+    assert gate["target_lufs_i"] == -16.00
+    assert profile["targetLufsI"] == -16.00
+    assert state.reason == "dynamics_gain_only_fallback"
+
+
+def test_attempted_steps_reports_gain_only_and_dc_cleanup():
+    import Suno15_Mastering_v3_9 as app
+
+    steps = app._attempted_steps_from_row(
+        {
+            "gain_only_render_count": "1",
+            "dc_correction_count": "1",
+            "fullness_render_count": "0",
+            "codec_check_count": "0",
+        }
+    )
+
+    assert "다이내믹 보존형 Gain-only 마스터링" in steps
+    assert "DC offset correction" in steps
+
+
+def test_v39_fullness_refresh_preserves_existing_final_metrics(tmp_path):
+    import csv
+    import Suno15_Mastering_v3_9 as app
+
+    output = tmp_path / "out"
+    output.mkdir()
+    csv_path = output / "mastering_report.csv"
+    fields = ["track", "final_LRA", "final_lufs_delta_lu", "fullness_mode"]
+    with csv_path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fields)
+        writer.writeheader()
+        writer.writerow(
+            {
+                "track": "track.wav",
+                "final_LRA": "3.75",
+                "final_lufs_delta_lu": "+0.01",
+                "fullness_mode": "RICH",
+            }
+        )
+
+    app.v38.patch_csv_with_fullness(output, metadata={})
+    with csv_path.open("r", newline="", encoding="utf-8-sig") as handle:
+        row = next(csv.DictReader(handle))
+
+    assert row["final_LRA"] == "3.75"
+    assert row["final_lufs_delta_lu"] == "+0.01"
+    assert row["fullness_mode"] == "RICH"
+
+
 def test_true_peak_only_fullness_issue_uses_micro_trim():
     metrics = _metrics(lufs=-14.0, tp=-1.10, lra=4.2)
 
