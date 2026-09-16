@@ -1383,6 +1383,7 @@ class AppV39(v38.AppV38):
         stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         out_dir = folder / (
             f"MASTER_{channel_key}_{genre_key}_{'AUTO' if mode == 'QUALITY+' else 'FAST'}_{stamp}"
+            f"{f'_JOB_{self.__dict__.get('queue_job_id', '')}' if self.__dict__.get('queue_job_id', '') else ''}"
         )
         out_dir.mkdir(parents=True, exist_ok=True)
         self.last_output_dir = out_dir

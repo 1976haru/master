@@ -76,6 +76,9 @@ jobs:
       - name: Verify v3.9 launch paths
         run: python scripts/verify_v38_launch_paths.py
 
+      - name: Verify v3.10 Queue Manager
+        run: python scripts/verify_v310_queue.py
+
       - name: Compile runtime adapters
         shell: pwsh
         run: |
@@ -94,3 +97,5 @@ jobs:
           python -m py_compile Suno15_Mastering_v3_8.pyw
           python -m py_compile Suno15_Mastering_v3_8_1.pyw
           python -m py_compile Suno15_Mastering_v3_9.pyw
+          python -m py_compile Suno15_Mastering_v3_10.pyw
+          python -m py_compile scripts/queue_worker.py
