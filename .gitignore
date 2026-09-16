@@ -68,3 +68,6 @@ reports/generated/
 !tests/fixtures/*.flac
 
 .tmp_pytest/
+
+# HARU Mastering Queue runtime state
+.haru_queue/
