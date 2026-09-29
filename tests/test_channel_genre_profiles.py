@@ -53,4 +53,3 @@ def test_runtime_profile_contains_channel_and_genre_metadata():
     assert profile["genreProfileKey"] == "CHILL_RAP"
     assert profile["targetLufsI"] == CHANNEL_PROFILES["TOKYO_CHILL"].target_lufs_i
     assert profile["fullness"]["saturationMaximumWetPercent"] <= 4.0
-
