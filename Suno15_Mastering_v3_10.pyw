@@ -89,6 +89,8 @@ class AppV310(v39.AppV39):
         self.queue_genre_var = tk.StringVar(value=normalize_genre_key(self.genre_var.get()))
         self.queue_sound_var = tk.StringVar(value=str(self.sound_var.get() or DEFAULT_SOUND_MODE).upper())
         self.queue_quality_var = tk.StringVar(value=queue_quality_mode(self.quality_var.get()))
+        self.queue_noise_repair_var = tk.StringVar(value=self.noise_repair_var.get())
+        self.queue_noise_intro_first_var = tk.BooleanVar(value=self.noise_intro_first_var.get())
         self.queue_settings_summary = tk.StringVar()
 
         controls = ttk.LabelFrame(self.queue_tab, text="대기열에 추가할 설정")
@@ -157,6 +159,20 @@ class AppV310(v39.AppV39):
             value="QUALITY+",
             command=self._update_queue_settings_summary,
         ).pack(side="left")
+
+        noise_row = ttk.Frame(controls)
+        noise_row.pack(fill="x", padx=10, pady=4)
+        ttk.Label(noise_row, text="Noise Repair:", width=12).pack(side="left", padx=(0, 8))
+        for noise_mode in ("OFF", "AUTO", "LIGHT", "MEDIUM"):
+            ttk.Radiobutton(
+                noise_row, text=noise_mode, variable=self.queue_noise_repair_var,
+                value=noise_mode, command=self._update_queue_settings_summary,
+            ).pack(side="left", padx=(0, 12))
+        ttk.Checkbutton(
+            noise_row, text="인트로 우선 분석 (15초)",
+            variable=self.queue_noise_intro_first_var,
+            command=self._update_queue_settings_summary,
+        ).pack(side="left", padx=(12, 0))
 
         ttk.Label(controls, textvariable=self.queue_settings_summary, justify="left").pack(
             fill="x", padx=14, pady=(4, 8)
@@ -258,6 +274,14 @@ class AppV310(v39.AppV39):
             "genre_key": normalize_genre_key(self.queue_genre_var.get()),
             "sound_mode": str(self.queue_sound_var.get() or DEFAULT_SOUND_MODE).upper(),
             "quality_mode": queue_quality_mode(self.queue_quality_var.get()),
+            "noise_repair_mode": str(
+                self.queue_noise_repair_var.get()
+                if "queue_noise_repair_var" in self.__dict__ else "AUTO"
+            ).upper(),
+            "noise_intro_first": bool(
+                self.queue_noise_intro_first_var.get()
+                if "queue_noise_intro_first_var" in self.__dict__ else True
+            ),
         }
 
     def _queue_settings_labels(self) -> dict[str, str]:
@@ -267,6 +291,7 @@ class AppV310(v39.AppV39):
             "genre": queue_genre_label(payload["genre_key"]),
             "sound": queue_sound_label(payload["sound_mode"]),
             "quality": payload["quality_mode"],
+            "noise": payload["noise_repair_mode"],
         }
 
     def _update_queue_settings_summary(self) -> None:
@@ -276,7 +301,7 @@ class AppV310(v39.AppV39):
         self.queue_settings_summary.set(
             "현재 Queue 설정으로 추가됩니다:\n"
             f"채널: {labels['channel']} / 장르: {labels['genre']} / "
-            f"사운드: {labels['sound']} / 품질: {labels['quality']}"
+            f"사운드: {labels['sound']} / 품질: {labels['quality']} / Noise Repair: {labels['noise']}"
         )
 
     def _confirm_add_queue_folders(self, folders: list[Path]) -> bool:
@@ -295,7 +320,8 @@ class AppV310(v39.AppV39):
             f"채널: {labels['channel']}\n"
             f"장르: {labels['genre']}\n"
             f"사운드: {labels['sound']}\n"
-            f"품질: {labels['quality']}"
+            f"품질: {labels['quality']}\n"
+            f"Noise Repair: {labels['noise']}"
         )
         return bool(v39.legacy.messagebox.askokcancel("대기열에 추가", message))
 
@@ -317,7 +343,10 @@ class AppV310(v39.AppV39):
             path
             for path in Path(root).iterdir()
             if path.is_dir()
-            and any(item.suffix.lower() in {".wav", ".wave"} for item in path.iterdir() if item.is_file())
+            and any(
+                item.suffix.lower() in {".wav", ".wave", ".mp3"}
+                for item in path.iterdir() if item.is_file()
+            )
         ]
         folders = sorted(folders, key=lambda path: path.name.lower())
         if not folders:
@@ -341,6 +370,8 @@ class AppV310(v39.AppV39):
                 genre_key=settings["genre_key"],
                 sound_mode=settings["sound_mode"],
                 quality_mode=settings["quality_mode"],
+                noise_repair_mode=settings["noise_repair_mode"],
+                noise_intro_first=settings["noise_intro_first"],
             )
         except (ValueError, OSError) as exc:
             if show_errors:

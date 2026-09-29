@@ -23,7 +23,7 @@ def load_app():
 
 def main() -> int:
     app = load_app()
-    assert app.APP_NAME == "HARU / SUNO 15-SET MASTERING v3.9"
+    assert app.APP_NAME == app.APP_TITLE
     assert app.SYNC_VERSION == "v3.9"
     assert issubclass(app.AppV39, app.v38.AppV38)
     assert app.MAX_FULLNESS_RENDER_PASSES == 2
@@ -56,7 +56,7 @@ def main() -> int:
     assert "Codec checks:" in worker
     assert "1/4" not in source
 
-    print("[PASS] HARU Mastering v3.9 channel/genre fast fullness runtime is ready")
+    print(f"[PASS] HARU Mastering v{app.VERSION} channel/genre fast fullness runtime is ready")
     print("CHANNEL_PROFILES and GENRE_PROFILES: separated")
     print("Fullness render cap: 2")
     print("Dynamics outer retry ladder: removed")

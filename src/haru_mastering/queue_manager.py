@@ -13,6 +13,7 @@ from typing import Any, Callable, Iterable
 
 
 QUEUE_VERSION = "v3.10"
+AUDIO_EXTENSIONS = {".wav", ".wave", ".mp3"}
 STATUSES = {
     "WAITING",
     "RUNNING",
@@ -36,6 +37,8 @@ class MasteringQueueJob:
     genre_key: str
     sound_mode: str
     quality_mode: str
+    noise_repair_mode: str = "AUTO"
+    noise_intro_first: bool = True
     status: str = "WAITING"
     created_at: str = field(default_factory=utc_now)
     started_at: str | None = None
@@ -56,6 +59,9 @@ class MasteringQueueJob:
     def from_dict(cls, payload: dict[str, Any]) -> "MasteringQueueJob":
         values = {field_name: payload.get(field_name) for field_name in cls.__dataclass_fields__}
         values["status"] = values.get("status") or "WAITING"
+        values["noise_repair_mode"] = values.get("noise_repair_mode") or "AUTO"
+        if values.get("noise_intro_first") is None:
+            values["noise_intro_first"] = True
         return cls(**values)
 
 
@@ -171,11 +177,18 @@ class QueueManager:
         if job is not None and self.on_update:
             self.on_update(job)
 
-    def add_job(self, folder: str | Path, *, channel_key: str, genre_key: str, sound_mode: str, quality_mode: str) -> MasteringQueueJob:
+    def add_job(
+        self, folder: str | Path, *, channel_key: str, genre_key: str,
+        sound_mode: str, quality_mode: str, noise_repair_mode: str = "AUTO",
+        noise_intro_first: bool = True,
+    ) -> MasteringQueueJob:
         folder_path = Path(folder).resolve()
         if any(Path(job.folder).resolve() == folder_path and job.status in {"WAITING", "RUNNING"} for job in self.jobs):
             raise ValueError("this source folder is already in the queue")
-        audio_count = len([path for path in folder_path.iterdir() if path.is_file() and path.suffix.lower() in {".wav", ".wave"}])
+        audio_count = len([
+            path for path in folder_path.iterdir()
+            if path.is_file() and path.suffix.lower() in AUDIO_EXTENSIONS
+        ])
         job_id = datetime.now().strftime("%Y%m%d_%H%M%S_%f") + "_" + uuid.uuid4().hex[:6]
         job = MasteringQueueJob(
             job_id=job_id,
@@ -184,6 +197,8 @@ class QueueManager:
             genre_key=str(genre_key),
             sound_mode=str(sound_mode),
             quality_mode=str(quality_mode),
+            noise_repair_mode=str(noise_repair_mode or "AUTO").upper(),
+            noise_intro_first=bool(noise_intro_first),
             total_tracks=audio_count,
             validation_warning=(None if audio_count == 15 else f"expected 15 WAV files, found {audio_count}"),
         )

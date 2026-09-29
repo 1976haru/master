@@ -1,4 +1,11 @@
-# HARU Mastering v3.9
+# HARU Mastering v3.11
+
+## v3.11 Suno v6 Noise Repair
+
+- 인트로 15초와 중간/후반 샘플을 분석해 CLEAN, LIGHT, MEDIUM, NEEDS_REVIEW로 분류합니다.
+- AUTO는 CLEAN 곡을 bypass하고 감지된 hiss/static/click/hum에만 보수적인 복원을 적용합니다.
+- Noise Repair는 기존 EQ 앞에서 실행되며 OFF에서는 기존 오디오 경로를 그대로 사용합니다.
+- 결과는 `reports/noise_repair_report.csv`와 완료 로그 요약에 기록됩니다.
 
 `HARU Mastering v3.9` separates channel/mastering presets from real music genres and replaces the v3.8 fixed 5-step Fullness retry ladder with a faster guarded engine.
 
@@ -137,4 +144,3 @@ Synthetic benchmark:
 ```
 
 Do not merge this branch to `main` until the user verifies 15 real Suno WAV files.
-

@@ -77,6 +77,14 @@ from haru_mastering.retry_policy import (
 )
 from haru_mastering.transparent import decide_gain_only, render_gain_only
 from haru_mastering.dc_cleanup import remove_dc_offset
+from haru_mastering.noise_repair import (
+    NoiseRepairSettings,
+    load_settings as load_noise_settings,
+    repair_file as repair_noise_file,
+    save_settings as save_noise_settings,
+    summary as noise_summary,
+    write_noise_report,
+)
 from haru_mastering.version import APP_TITLE, DISPLAY_VERSION, REPORT_VERSION, VERSION
 import haru_mastering.report as report_module
 
@@ -418,6 +426,10 @@ def _automatic_limit_text(
 
 class AppV39(v38.AppV38):
     def _build_ui(self):
+        saved_noise = load_noise_settings(ROOT / ".haru_settings.json")
+        self.noise_repair_var = legacy.tk.StringVar(value=saved_noise.mode)
+        self.noise_intro_first_var = legacy.tk.BooleanVar(value=saved_noise.intro_first)
+        self.noise_intro_seconds_var = legacy.tk.DoubleVar(value=saved_noise.intro_seconds)
         self.channel_var = legacy.tk.StringVar(value=DEFAULT_CHANNEL_KEY)
         if hasattr(self, "genre_var"):
             self.genre_var.set(DEFAULT_GENRE_KEY)
@@ -591,6 +603,24 @@ class AppV39(v38.AppV38):
             justify="left",
         ).pack(fill="x", padx=14, pady=(0, 8))
 
+        nframe = ttk.LabelFrame(self.master_tab, text="6. Suno v6 Noise Repair")
+        nframe.pack(fill="x", padx=14, pady=8)
+        nrow = ttk.Frame(nframe)
+        nrow.pack(fill="x", padx=10, pady=(8, 4))
+        for noise_mode in ("OFF", "AUTO", "LIGHT", "MEDIUM"):
+            ttk.Radiobutton(
+                nrow, text=noise_mode, variable=self.noise_repair_var, value=noise_mode,
+                command=self._save_noise_settings,
+            ).pack(side="left", padx=(0, 16))
+        ttk.Checkbutton(
+            nrow, text="인트로 우선 분석 (15초)", variable=self.noise_intro_first_var,
+            command=self._save_noise_settings,
+        ).pack(side="left", padx=(12, 0))
+        ttk.Label(
+            nframe,
+            text="Suno v6의 인트로 hiss/static/crackle 등을 자동 감지해 필요한 곡만 보수적으로 정리합니다.",
+        ).pack(anchor="w", padx=14, pady=(0, 8))
+
         bframe = ttk.Frame(self.master_tab)
         bframe.pack(fill="x", padx=14, pady=8)
         self.start_btn = ttk.Button(
@@ -633,6 +663,27 @@ class AppV39(v38.AppV38):
 
     def _on_sound_mode_changed(self):
         self._update_genre_description()
+
+    def _noise_settings(self) -> NoiseRepairSettings:
+        return NoiseRepairSettings(
+            # Headless legacy/unit callers that did not initialize the v3.11 UI retain
+            # the exact historical path. Normal GUI/queue callers always provide AUTO.
+            mode=self.noise_repair_var.get() if "noise_repair_var" in self.__dict__ else "OFF",
+            intro_first=(
+                self.noise_intro_first_var.get()
+                if "noise_intro_first_var" in self.__dict__ else True
+            ),
+            intro_seconds=(
+                self.noise_intro_seconds_var.get()
+                if "noise_intro_seconds_var" in self.__dict__ else 15.0
+            ),
+        ).normalized()
+
+    def _save_noise_settings(self) -> None:
+        try:
+            save_noise_settings(ROOT / ".haru_settings.json", self._noise_settings())
+        except OSError:
+            pass
 
     def _stage_status(self, index: int, total: int, stage: str, source: Path) -> None:
         self.after(0, self.status_var.set, f"{index:02d}/{total:02d} {stage}: {source.name}")
@@ -1408,6 +1459,7 @@ class AppV39(v38.AppV38):
         release_rows = []
         unresolved = []
         track_errors: list[tuple[str, str]] = []
+        noise_results = []
         auto_fixed_count = 0
         codec_safe_count = 0
         total = len(files)
@@ -1439,6 +1491,20 @@ class AppV39(v38.AppV38):
                     source_ctx = self._source_context(src)
                     track_timing.analysis = time.perf_counter() - start
                     self._stage_log(idx, total, "analysis", track_timing.analysis)
+
+                    noise_temp = out_dir / f".{src.stem}.noise_repair.tmp.wav"
+                    noise_result = repair_noise_file(
+                        src, noise_temp, self.__dict__.get("ffmpeg"), self._noise_settings()
+                    )
+                    noise_results.append(noise_result)
+                    processing_source = Path(noise_result.output)
+                    detected_noise = "/".join(noise_result.analysis.detected_types) or "NONE"
+                    self.after(
+                        0,
+                        self.append_log,
+                        f"    [Noise Repair] {noise_result.result} / {detected_noise} / "
+                        f"score {noise_result.analysis.score:.1f}",
+                    )
 
                     raw_lra = legacy.safe_float(source_ctx.raw.get("input_lra"))
                     preflight = decide_preflight(
@@ -1506,7 +1572,7 @@ class AppV39(v38.AppV38):
                     start = time.perf_counter()
                     if preflight.gain_only_recommended:
                         render_ok, render_err, gain_decision = self._render_gain_only_base(
-                            src,
+                            processing_source,
                             base,
                             source_ctx,
                             effective_target,
@@ -1521,7 +1587,7 @@ class AppV39(v38.AppV38):
                         )
                         counters.gain_only_render_count += 1
                     else:
-                        render_ok, render_err = self._render_base(src, base, mastering_key, factor, mode)
+                        render_ok, render_err = self._render_base(processing_source, base, mastering_key, factor, mode)
                         gain_decision = None
                     counters.base_render_count += 1
                     base_seconds = time.perf_counter() - start
@@ -1555,7 +1621,7 @@ class AppV39(v38.AppV38):
                             )
                             start = time.perf_counter()
                             render_ok, render_err, gain_decision = self._render_gain_only_base(
-                                src,
+                                processing_source,
                                 base,
                                 source_ctx,
                                 effective_target,
@@ -1642,7 +1708,7 @@ class AppV39(v38.AppV38):
                         self.after(0, self.append_log, "    Transparent fallback: final dynamics risk")
                         start = time.perf_counter()
                         render_ok, render_err, gain_decision = self._render_gain_only_base(
-                            src,
+                            processing_source,
                             base,
                             source_ctx,
                             effective_target,
@@ -1727,7 +1793,7 @@ class AppV39(v38.AppV38):
                             counters.codec_ceiling_rerender_count += 1
                             if processing_mode in {"transparent", "gain_only"}:
                                 render_ok, render_err, gain_decision = self._render_gain_only_base(
-                                    src,
+                                    processing_source,
                                     base,
                                     source_ctx,
                                     effective_target,
@@ -1742,7 +1808,7 @@ class AppV39(v38.AppV38):
                                 )
                                 counters.gain_only_render_count += 1
                             else:
-                                render_ok, render_err = self._render_base(src, base, mastering_key, factor, mode)
+                                render_ok, render_err = self._render_base(processing_source, base, mastering_key, factor, mode)
                             base_seconds = time.perf_counter() - start
                             track_timing.base_mastering += base_seconds
                             self._stage_log(idx, total, "codec ceiling rerender", base_seconds)
@@ -2007,6 +2073,8 @@ class AppV39(v38.AppV38):
                     try:
                         if base.exists():
                             base.unlink()
+                        if noise_temp.exists():
+                            noise_temp.unlink()
                     except OSError:
                         pass
                 except (SystemExit, KeyboardInterrupt):
@@ -2042,6 +2110,10 @@ class AppV39(v38.AppV38):
                 writer.writeheader()
                 writer.writerows(rows)
 
+        noise_report_path = write_noise_report(
+            out_dir / "reports" / "noise_repair_report.csv", noise_results
+        )
+
         if gate_results:
             json_path, html_path = write_quality_reports(out_dir, gate_results)
         else:
@@ -2075,11 +2147,20 @@ class AppV39(v38.AppV38):
             compatibility_path,
             json_path,
             html_path,
+            noise_report_path,
         ]:
             if report_file and Path(report_file).exists():
                 shutil.copy2(report_file, paths["report"] / Path(report_file).name)
 
         self._refresh_v39_reports(out_dir)
+
+        noise_counts = noise_summary(noise_results)
+        self.after(0, self.append_log, "Suno v6 Noise Repair summary")
+        self.after(
+            0,
+            self.append_log,
+            " / ".join(f"{key}: {value}" for key, value in noise_counts.items()),
+        )
 
         pass_count = sum(row.get("quality_status", row.get("status")) == "PASS" for row in rows)
         warn_count = sum(row.get("quality_status", row.get("status")) == "WARN" for row in rows)

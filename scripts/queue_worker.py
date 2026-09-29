@@ -45,7 +45,10 @@ def main() -> int:
     log_path = job_path.parent / "worker.log"
     root = Path(__file__).resolve().parents[1]
     files = sorted(
-        [path for path in Path(job["folder"]).iterdir() if path.is_file() and path.suffix.lower() in {".wav", ".wave"}],
+        [
+            path for path in Path(job["folder"]).iterdir()
+            if path.is_file() and path.suffix.lower() in {".wav", ".wave", ".mp3"}
+        ],
         key=lambda path: path.name.lower(),
     )
     atomic_json(progress_path, {"status": "RUNNING", "current_track": 0, "total_tracks": len(files), "stage": "starting"})
@@ -70,6 +73,8 @@ def main() -> int:
         app.genre_var.set(job["genre_key"])
         app.sound_var.set(job["sound_mode"])
         app.quality_var.set(job["quality_mode"])
+        app.noise_repair_var.set(job.get("noise_repair_mode", "AUTO"))
+        app.noise_intro_first_var.set(job.get("noise_intro_first", True))
 
         original_stage = app._stage_status
 
