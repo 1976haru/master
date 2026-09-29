@@ -23,11 +23,11 @@ def load_app():
 
 def main() -> int:
     app = load_app()
-    assert app.APP_NAME == "HARU / SUNO 15-SET MASTERING v3.8.1"
-    assert app.REPORT_VERSION == "v3.8.1"
-    assert app.SYNC_VERSION == "v3.8.1"
+    assert app.APP_NAME == "HARU / SUNO 15-SET MASTERING v3.9"
+    assert app.REPORT_VERSION == "v3.9"
+    assert app.SYNC_VERSION == "v3.9"
     assert issubclass(app.AppV38, app.v372.AppV372)
-    assert app.report_module.QUALITY_REPORT_VERSION == "v3.8.1"
+    assert app.report_module.QUALITY_REPORT_VERSION == "v3.9"
 
     with tempfile.TemporaryDirectory() as temp_dir:
         out = Path(temp_dir)
@@ -67,8 +67,8 @@ def main() -> int:
         assert app.patch_csv_with_fullness(out, rows) == 1
         with csv_path.open("r", newline="", encoding="utf-8-sig") as handle:
             row = next(csv.DictReader(handle))
-        assert row["app_version"] == "v3.8.1"
-        assert row["final_metrics_sync_version"] == "v3.8.1"
+        assert row["app_version"] == "v3.9"
+        assert row["final_metrics_sync_version"] == "v3.9"
         assert row["fullness_mode"] == "RICH"
         assert row["fullness_strength_percent"] == "75"
         assert row["warmth_gain_db"] == "+0.45"
@@ -82,9 +82,9 @@ def main() -> int:
         txt = out / "auto_result.txt"
         txt.write_text("All tracks passed v3.7.2 final checks.", encoding="utf-8")
         assert app._refresh_completion_text_files_v38(out) == 1
-        assert "v3.8.1" in txt.read_text(encoding="utf-8")
+        assert "v3.9" in txt.read_text(encoding="utf-8")
 
-    print("[PASS] HARU Mastering v3.8 Fullness Engine is ready")
+    print("[PASS] HARU Mastering v3.8 Fullness Engine adapter follows v3.9 versioning")
     print("v3.7.2 inheritance: ON")
     print("Fullness CSV columns: ON")
     print("Central version strings: ON")
